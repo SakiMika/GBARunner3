@@ -263,6 +263,7 @@ SECTIONS
 		   cheat translation unit.  The explicit .ewram.bss attributes cover
 		   the large buffers, but GCC may still emit auxiliary .bss.* symbols. */
 		CheatService.o(.bss .bss.* .gnu.linkonce.b* COMMON)
+		BootDebug.o(.bss .bss.* .gnu.linkonce.b* COMMON)
 		*(.ewram.bss*)
 		. = ALIGN(4);    /* REQUIRED. LD is flaky without it. */
 	} >ewram :NONE
@@ -287,8 +288,8 @@ SECTIONS
 		__bss_start = ABSOLUTE(.);
 		__bss_start__ = ABSOLUTE(.);
 		*(.dynbss)
-		*(EXCLUDE_FILE(CheatService.o) .gnu.linkonce.b*)
-		*(EXCLUDE_FILE(CheatService.o) .bss*)
+		*(EXCLUDE_FILE(CheatService.o BootDebug.o) .gnu.linkonce.b*)
+		*(EXCLUDE_FILE(CheatService.o BootDebug.o) .bss*)
 		*(COMMON)
 		. = ALIGN(4);    /* REQUIRED. LD is flaky without it. */
 	} >vrama :NONE
