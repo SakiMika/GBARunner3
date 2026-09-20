@@ -72,6 +72,13 @@ CFLAGS	+=	$(INCLUDE)
 CXXFLAGS	:= $(CFLAGS) -std=gnu++23 -Wno-volatile -fno-rtti -fno-exceptions -fno-threadsafe-statics\
 				-Wsuggest-override -Werror=suggest-override
 
+# CheatService is linked in EWRAM (0x0204xxxx), while much of the ARM9 core
+# and libnds/libtwl code executes from VRAM (0x068xxxxx).  A normal ARM BL has
+# only a +/-32 MiB range, so every external call from this translation unit
+# must be emitted as a long call.  Without this, the final arm9.elf link can
+# fail with R_ARM_CALL/R_ARM_JUMP24 relocation truncation.
+CheatService.o: CXXFLAGS += -mlong-calls
+
 ASFLAGS	:=	-g $(ARCH) $(INCLUDE)
 LDFLAGS	=	-T ../gbarunner9.ld -g $(ARCH) -Wl,-Map,$(notdir $*.map),--use-blx,--no-warn-rwx-segments,--gc-sections -ffunction-sections -fdata-sections
 
