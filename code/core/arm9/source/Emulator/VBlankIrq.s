@@ -4,13 +4,18 @@
 #include "AsmMacros.inc"
 
 arm_func emu_vblankIrq
-    // Cheat service runs once per emulated frame. When its menu is open it stays
-    // inside this IRQ, which pauses the GBA CPU while ARM7 keeps sampling touch.
-    ldr sp,= gCheatIrqStack + 4096
+    // Cheat service runs once per emulated frame. The normal IRQ stack is only
+    // ~288 bytes, so use the dedicated EWRAM stack while C++ is active, but
+    // always restore the original SP before continuing the emulator IRQ.
     push {r0-r3,r12,lr}
 #ifndef GBAR3_TEST
+    mov r0, sp
+    ldr sp,= gCheatIrqStack + 4096
+    push {r0}
     ldr r12,= cheat_onVBlank
     blx r12
+    pop {r0}
+    mov sp, r0
 #endif
     pop {r0-r3,r12,lr}
     // For center and mask display capture has to be enabled every frame

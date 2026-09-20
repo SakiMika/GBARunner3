@@ -1,0 +1,10 @@
+Cheat build fix v4
+==================
+
+1. Removed the new memu_load/store8/16FromC assembly wrappers from ITCM.
+   GBARunner3 has a tightly packed fixed-offset 32 KiB ITCM image; extending
+   those .itcm objects can make the ARM9 link fail even when all C++ compiles.
+2. CheatService now reuses the existing memu_load32FromC/memu_store32FromC
+   bridge and performs byte/halfword masking via read-modify-write.
+3. Fixed VBlank cheat stack switching: the original IRQ SP is saved and restored.
+4. CI now prints an explicit BUILD ERROR SUMMARY even when nested make output is huge.

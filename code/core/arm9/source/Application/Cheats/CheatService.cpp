@@ -559,6 +559,56 @@ void CheatService::RunMenuLoop()
     RenderClosed();
 }
 
+// Reuse the existing 32-bit C bridge instead of adding 8/16-bit wrappers to
+// ITCM. GBARunner3's 32 KiB ITCM layout is extremely tight and is arranged at
+// fixed offsets by gbarunner9.ld. Read-modify-write preserves neighbouring
+// bytes/halfwords while keeping the original ITCM image unchanged.
+static inline u8 cheatRead8(u32 address)
+{
+    const u32 aligned = address & ~3u;
+    const u32 word = memu_load32FromC(aligned);
+    return static_cast<u8>(word >> ((address & 3u) * 8));
+}
+
+static inline u16 cheatRead16(u32 address)
+{
+    const u32 byte = address & 3u;
+    if (byte != 3u)
+    {
+        const u32 word = memu_load32FromC(address & ~3u);
+        return static_cast<u16>(word >> (byte * 8));
+    }
+    // Rare unaligned halfword crossing a 32-bit boundary.
+    return static_cast<u16>(cheatRead8(address) |
+        (static_cast<u16>(cheatRead8(address + 1)) << 8));
+}
+
+static inline void cheatWrite8(u32 address, u8 value)
+{
+    const u32 aligned = address & ~3u;
+    const u32 shift = (address & 3u) * 8;
+    const u32 mask = 0xFFu << shift;
+    const u32 oldWord = memu_load32FromC(aligned);
+    memu_store32FromC(aligned, (oldWord & ~mask) | (static_cast<u32>(value) << shift));
+}
+
+static inline void cheatWrite16(u32 address, u16 value)
+{
+    const u32 byte = address & 3u;
+    if (byte != 3u)
+    {
+        const u32 aligned = address & ~3u;
+        const u32 shift = byte * 8;
+        const u32 mask = 0xFFFFu << shift;
+        const u32 oldWord = memu_load32FromC(aligned);
+        memu_store32FromC(aligned,
+            (oldWord & ~mask) | (static_cast<u32>(value) << shift));
+        return;
+    }
+    cheatWrite8(address, static_cast<u8>(value));
+    cheatWrite8(address + 1, static_cast<u8>(value >> 8));
+}
+
 void CheatService::ApplyCodeBreakerCheat(const Cheat& cheat)
 {
     bool executeNext = true;
@@ -584,38 +634,38 @@ void CheatService::ApplyCodeBreakerCheat(const Cheat& cheat)
             case 0x1:
                 break;
             case 0x2:
-                memu_store16FromC(address, memu_load16FromC(address) | operand);
+                cheatWrite16(address, static_cast<u16>(cheatRead16(address) | operand));
                 break;
             case 0x3:
-                memu_store8FromC(address, operand & 0xFF);
+                cheatWrite8(address, static_cast<u8>(operand));
                 break;
             case 0x6:
-                memu_store16FromC(address, memu_load16FromC(address) & operand);
+                cheatWrite16(address, static_cast<u16>(cheatRead16(address) & operand));
                 break;
             case 0x7:
-                executeNext = memu_load16FromC(address) == operand;
+                executeNext = cheatRead16(address) == operand;
                 break;
             case 0x8:
-                memu_store16FromC(address, operand);
+                cheatWrite16(address, operand);
                 break;
             case 0xA:
-                executeNext = memu_load16FromC(address) != operand;
+                executeNext = cheatRead16(address) != operand;
                 break;
             case 0xB:
-                executeNext = memu_load16FromC(address) > operand;
+                executeNext = cheatRead16(address) > operand;
                 break;
             case 0xC:
-                executeNext = memu_load16FromC(address) < operand;
+                executeNext = cheatRead16(address) < operand;
                 break;
             case 0xD:
                 if (address == 0x20)
-                    executeNext = (memu_load16FromC(0x04000130) & operand) == 0;
+                    executeNext = (cheatRead16(0x04000130) & operand) == 0;
                 break;
             case 0xE:
-                memu_store16FromC(address, memu_load16FromC(address) + operand);
+                cheatWrite16(address, static_cast<u16>(cheatRead16(address) + operand));
                 break;
             case 0xF:
-                executeNext = (memu_load16FromC(address) & operand) != 0;
+                executeNext = (cheatRead16(address) & operand) != 0;
                 break;
             default:
                 break;

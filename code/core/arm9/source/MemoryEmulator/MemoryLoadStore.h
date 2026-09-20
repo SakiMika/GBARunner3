@@ -24,15 +24,11 @@ extern "C" {
 ///        When unaligned rotation is applied.
 /// @param address The address to load from.
 /// @return The loaded value.
-extern u8 memu_load8FromC(u32 address);
-extern u16 memu_load16FromC(u32 address);
 extern u32 memu_load32FromC(u32 address);
 
 /// @brief Stores a 32-bit value to the given GBA memory address.
 /// @param address The address to store to.
 /// @param value The value to store.
-extern void memu_store8FromC(u32 address, u32 value);
-extern void memu_store16FromC(u32 address, u32 value);
 extern void memu_store32FromC(u32 address, u32 value);
 
 extern void memu_load8Undefined(void);

@@ -7,14 +7,6 @@
 #include "MemoryEmulator/RomDefs.h"
 #include "MemoryEmulator/MemoryLoadStoreTableDefs.inc"
 
-arm_func memu_load16FromC
-    push {r8-r11,lr}
-    mov r8, r0
-    bl memu_load16
-    mov r0, r9, lsl #16
-    mov r0, r0, lsr #16
-    pop {r8-r11,pc}
-
 /// @brief Loads a 16-bit value from the given GBA memory address.
 ///        When unaligned rotation is applied.
 /// @param r0-r7 Preserved.
