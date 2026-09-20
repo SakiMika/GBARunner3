@@ -1,0 +1,19 @@
+{
+  "format": "codebreaker",
+  "cheats": [
+    {
+      "name": "Drill Dozer Master Code",
+      "codes": [
+        "0000B9D7 2C97",
+        "00007292 000A",
+        "100F68A4 0007"
+      ]
+    },
+    {
+      "name": "Unlimited Energy",
+      "codes": [
+        "820346BC 02BC"
+      ]
+    }
+  ]
+}

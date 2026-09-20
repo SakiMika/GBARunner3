@@ -97,7 +97,7 @@ void gbas_updateMixer(s16* outLeft, s16* outRight)
     s16 finalLeft = 0;
     s16 finalRight = 0;
 
-    if (!sPaused)
+    if (!sPaused && (!gSoundSharedData || !gSoundSharedData->cheatControl.pauseAudio))
     {
         u32 timer0Overflows = gbat_updateTimer(&sTimers[0]);
         u32 timer1Overflows = gbat_updateTimer(&sTimers[1]);

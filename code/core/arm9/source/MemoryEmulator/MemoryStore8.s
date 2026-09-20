@@ -4,6 +4,13 @@
 #include "GbaIoRegOffsets.h"
 #include "MemoryEmulator/MemoryLoadStoreTableDefs.inc"
 
+arm_func memu_store8FromC
+    push {r8-r11,lr}
+    mov r8, r0
+    and r9, r1, #0xFF
+    bl memu_store8
+    pop {r8-r11,pc}
+
 /// @brief Stores an 8-bit value to the given GBA memory address.
 /// @param r0-r7 Preserved.
 /// @param r8 The address to store to. This register is preserved.

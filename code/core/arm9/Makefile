@@ -25,6 +25,7 @@ BUILD		:=	build
 SOURCES		:=	source \
 				../common \
 				source/Application \
+				source/Application/Cheats \
 				source/Application/Settings \
 				source/Application/Settings/Enums \
 				source/Application/Settings/Json \

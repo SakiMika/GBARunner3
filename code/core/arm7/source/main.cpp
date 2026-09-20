@@ -1,4 +1,5 @@
 #include "common.h"
+#include <nds.h>
 #include <libtwl/ipc/ipcFifoSystem.h>
 #include <libtwl/ipc/ipcSync.h>
 #include <libtwl/sys/sysPower.h>
@@ -19,6 +20,7 @@
 #include "Arm7State.h"
 #include "ExitMode.h"
 #include "FramerateAdjustment.h"
+#include "Sound/GbaSound7.h"
 #include "mmc/tmio.h"
 
 static FsIpcService sFsIpcService;
@@ -132,6 +134,23 @@ static void initializeArm7()
     notifyArm7Ready();
 }
 
+static void updateCheatTouchState()
+{
+    if (!gSoundSharedData)
+        return;
+
+    const bool touchDown = (REG_KEYXY & (1 << 6)) == 0;
+    if (touchDown)
+    {
+        touchPosition touch {};
+        touchRead(&touch);
+        gSoundSharedData->cheatInput.touchX = touch.px;
+        gSoundSharedData->cheatInput.touchY = touch.py;
+    }
+    gSoundSharedData->cheatInput.touchDown = touchDown ? 1 : 0;
+    ++gSoundSharedData->cheatInput.sequence;
+}
+
 static void updateArm7IdleState()
 {
     checkMcuIrq();
@@ -173,6 +192,7 @@ static void updateArm7ExitRequestedState()
 
 static void updateArm7()
 {
+    updateCheatTouchState();
     switch (sState)
     {
         case Arm7State::Idle:

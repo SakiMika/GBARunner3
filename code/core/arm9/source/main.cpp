@@ -39,6 +39,7 @@
 #include "Application/GbaDisplayConfigurationService.h"
 #include "Application/GbaBorderService.h"
 #include "Application/SplashScreen.h"
+#include "Application/Cheats/CheatService.h"
 #include "Patches/PatchSwi.h"
 #include "Patches/SelfModifyingPatches.h"
 #include "Emulator/BootAnimationSkip.h"
@@ -492,6 +493,7 @@ extern "C" void gbaRunnerMain(int argc, char* argv[])
         romExtension[4] = '\0';
     }
     loadGameSpecificSettings();
+    gCheatService.LoadForRom(gRomHeader);
     handleSave(romPath);
     SelfModifyingPatches().ApplyPatches(gAppSettingsService.GetAppSettings().runSettings);
 
@@ -500,7 +502,14 @@ extern "C" void gbaRunnerMain(int argc, char* argv[])
     delete sSplashScreen;
     sSplashScreen = nullptr;
 
-    const auto& displaySettings = gAppSettingsService.GetAppSettings().displaySettings;
+    auto displaySettings = gAppSettingsService.GetAppSettings().displaySettings;
+    if (gCheatService.HasCheats())
+    {
+        // Reserve the physical lower LCD for the persistent touch cheat UI.
+        // Center/mask capture uses both engines, so disable it while this UI is present.
+        displaySettings.gbaScreen = GbaScreen::Top;
+        displaySettings.enableCenterAndMask = false;
+    }
     gGbaDisplayConfigurationService.ApplyDisplaySettings(displaySettings);
     if (displaySettings.enableCenterAndMask)
     {
@@ -519,6 +528,7 @@ extern "C" void gbaRunnerMain(int argc, char* argv[])
     setupJit();
     dma_init();
     gbas_init();
+    gCheatService.InitializeUi();
     dc_flushRange((void*)ROM_LINEAR_DS_ADDRESS, ROM_LINEAR_SIZE);
     dc_flushRange(gGbaBios, sizeof(gGbaBios));
     ic_invalidateAll();

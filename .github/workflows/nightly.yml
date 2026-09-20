@@ -29,6 +29,7 @@ jobs:
           mkdir -p out/_gba/
           cp -f code/bootstrap/GBARunner3.nds out/
           cp -r configs out/_gba/
+          cp -r cheats out/_gba/
       - name: Publish build to GH Actions
         uses: actions/upload-artifact@v4
         with:
