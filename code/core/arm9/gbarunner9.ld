@@ -38,15 +38,15 @@ SECTIONS
 
 	.text :   /* ALIGN (4): */
 	{
-		*(EXCLUDE_FILE(*.itcm* *.vectors* *.twl* CheatService.o) .text)
+		*(EXCLUDE_FILE(*.itcm* *.vectors* *.twl*) .text)
 		*(EXCLUDE_FILE(*.itcm* *.vectors* *.twl*) .stub)
-		*(EXCLUDE_FILE(*.itcm* *.vectors* *.twl* CheatService.o) .text.*)
+		*(EXCLUDE_FILE(*.itcm* *.vectors* *.twl*) .text.*)
 		KEEP (*(SORT_NONE(.init)))
-		*(EXCLUDE_FILE(CheatService.o) .text.*)
+		*(.text.*)
 		*(.stub)
 		/* .gnu.warning sections are handled specially by elf32.em.  */
 		*(.gnu.warning)
-		*(EXCLUDE_FILE(CheatService.o) .gnu.linkonce.t*)
+		*(.gnu.linkonce.t*)
 		__glue_start = ABSOLUTE(.);
 		*(.glue_7)
 		*(.glue_7t)
@@ -64,11 +64,11 @@ SECTIONS
 
 	.rodata :
 	{
-		*(EXCLUDE_FILE(CheatService.o) .rodata)
+		*(.rodata)
 		*all.rodata*(*)
-		*(EXCLUDE_FILE(CheatService.o) .roda)
-		*(EXCLUDE_FILE(CheatService.o) .rodata.*)
-		*(EXCLUDE_FILE(CheatService.o) .gnu.linkonce.r*)
+		*(.roda)
+		*(.rodata.*)
+		*(.gnu.linkonce.r*)
 		SORT(CONSTRUCTORS)
 		. = ALIGN(4);   /* REQUIRED. LD is flaky without it. */
 	} >vrama AT> vramab :main = 0xff
@@ -248,8 +248,8 @@ SECTIONS
 	{
 	    __ewram_lma = LOADADDR(.ewram);
 	    __ewram_start = ABSOLUTE(.);
-	    /* Keep cheat parser/UI out of the 128 KiB executable VRAM A region. */
-	    CheatService.o(.text .text.* .stub .gnu.linkonce.t* .rodata .roda .rodata.* .gnu.linkonce.r* .data .data.*)
+	    /* Runtime buffers/state live in EWRAM, but executable cheat code stays
+	       in VRAM A. This avoids executing freshly copied code from cached RAM. */
 	    *(.ewram)
 	    . = ALIGN(4);    /* REQUIRED. LD is flaky without it. */
 	    __ewram_end = ABSOLUTE(.);

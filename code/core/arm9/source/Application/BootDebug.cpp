@@ -78,11 +78,25 @@ static const char sBootDebugStages[][32] = {
     "49 VM IRQ OK",
     "50 VM RUN >",
     "!! VM RETURNED",
-    "!! MOUNT FS FAILED"
+    "!! MOUNT FS FAILED",
+    "52 CHEAT FUNC ENTER",
+    "53 PATH VERSION OK",
+    "54 TRY FILE ENTER",
+    "55 FILE OPEN OK",
+    "56 FILE SIZE OK",
+    "57 FILE READ OK",
+    "58 JSON CHEATS FOUND",
+    "59 JSON ARRAY FOUND",
+    "60 JSON PARSE OK",
+    "61 FIRST FILE MISS",
+    "62 PATH MAKER OK",
+    "63 SECOND FILE ENTER",
+    "64 SECOND FILE RETURN",
+    "65 CHEAT FUNC RETURN"
 };
 
 [[gnu::section(".ewram"), gnu::aligned(4)]]
-static const char sBootDebugHeader[] = "GBARUNNER3 V11 BOOT DEBUG";
+static const char sBootDebugHeader[] = "GBARUNNER3 V12 BOOT DEBUG";
 [[gnu::section(".ewram"), gnu::aligned(4)]]
 static const char sBootDebugCheat[] = "[CHEAT]";
 

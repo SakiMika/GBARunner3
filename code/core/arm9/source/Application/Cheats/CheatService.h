@@ -10,8 +10,8 @@ public:
     static constexpr u32 MaxCodeLines = 24;
     static constexpr u32 MaxNameLength = 48;
 
-    [[gnu::long_call]] bool LoadForRom(const GbaHeader& header);
-    [[gnu::long_call]] void InitializeUi();
+    bool LoadForRom(const GbaHeader& header);
+    void InitializeUi();
     bool HasCheats() const { return _cheatCount != 0; }
     void OnVBlank();
 

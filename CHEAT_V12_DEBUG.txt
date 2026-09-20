@@ -1,0 +1,11 @@
+GBARunner3 cheat v12
+
+Key change:
+- CheatService executable code/rodata is back in VRAM A.
+- Only cheat runtime buffers/state remain in EWRAM.
+- Removed -mlong-calls and long_call attributes.
+
+Reason:
+V11 reaches checkpoint 22 then stalls inside LoadForRom(). Moving the whole CheatService translation unit to EWRAM introduced executable-code copy/cache complexity. Earlier linker data showed the actual overflow was .bss, so keeping code in VRAM while moving BSS to EWRAM is the safer layout.
+
+Fine checkpoints 52-65 identify exactly where cheat loading stalls.
