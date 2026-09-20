@@ -1,39 +1,213 @@
 #include "CheatService.h"
-#include <algorithm>
-#include <ctype.h>
-#include <stdio.h>
-#include <memory>
 #include <string.h>
 #include <nds.h>
-#include <mini-printf.h>
 #include <libtwl/mem/memVram.h>
-#include <libtwl/gfx/gfx.h>
 #include <libtwl/sys/sysPower.h>
-#include "Application/Settings/Json/ArduinoJson.h"
 #include "Fat/ff.h"
 #include "MemoryEmulator/MemoryLoadStore.h"
 #include "Peripherals/Sound/GbaSound9.h"
 #include "SystemIpc.h"
 #include "cp15.h"
 
-#define CHEAT_PATH_VERSION_FORMAT "/_gba/cheats/%c%c%c%c%02X.json"
-#define CHEAT_PATH_MAKER_FORMAT   "/_gba/cheats/%c%c%c%c%c%c.json"
+#pragma GCC optimize("Os")
+
 #define CHEAT_FILE_MAX_SIZE       (24 * 1024)
-#define CHEAT_JSON_CAPACITY       (32 * 1024)
 #define CHEAT_VISIBLE_ROWS        18
-#define CHEAT_BUTTON_X0           200
-#define CHEAT_BUTTON_Y0           168
+#define CHEAT_BUTTON_X0           192
+#define CHEAT_BUTTON_Y0           160
+#define CHEAT_BUTTON_ROW          22
+#define CHEAT_BUTTON_COL          25
+#define SUB_BG_TILE_BASE          ((volatile u8*)0x06200000)
+#define SUB_BG_MAP_BASE           ((volatile u16*)0x06204000)
+#define SUB_BG_PALETTE            ((volatile u16*)0x05000400)
 
 [[gnu::section(".ewram.bss"), gnu::aligned(4)]]
 CheatService gCheatService;
-static PrintConsole sCheatConsole;
 
-// The normal emulator IRQ stack is only 288 bytes. The cheat menu calls the
-// console renderer while the GBA VM is paused inside VBlank, so give it a
-// dedicated stack instead of risking DTCM IRQ stack corruption.
+// Dedicated storage avoids heap pressure while a ROM is being initialized.
+[[gnu::section(".ewram.bss"), gnu::aligned(32)]]
+static char sCheatFileBuffer[CHEAT_FILE_MAX_SIZE + 1];
+
+// The emulator IRQ stack is deliberately tiny. Menu rendering/polling uses its
+// own stack so opening the menu cannot corrupt the VM's normal IRQ stack.
 extern "C" {
 [[gnu::section(".ewram.bss"), gnu::aligned(8)]]
 u8 gCheatIrqStack[4096];
+}
+
+static const u8 sFont8x8[95][8] = {
+    {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}, // ' '
+    {0x02, 0x02, 0x02, 0x02, 0x02, 0x00, 0x00, 0x02}, // '!'
+    {0x06, 0x06, 0x06, 0x00, 0x00, 0x00, 0x00, 0x00}, // '"'
+    {0x14, 0x0C, 0x0C, 0x1E, 0x0A, 0x1E, 0x0A, 0x06}, // '#'
+    {0x1C, 0x2A, 0x2A, 0x0E, 0x18, 0x28, 0x2A, 0x1C}, // '$'
+    {0x4E, 0x2A, 0x2A, 0x1E, 0xF0, 0xA8, 0xA4, 0xE4}, // '%'
+    {0x1C, 0x02, 0x22, 0x7C, 0x22, 0x22, 0x22, 0x3C}, // '&'
+    {0x02, 0x02, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00}, // "'"
+    {0x04, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x04}, // '('
+    {0x00, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x00}, // ')'
+    {0x00, 0x00, 0x00, 0x08, 0x2A, 0x1C, 0x14, 0x00}, // '*'
+    {0x00, 0x00, 0x08, 0x08, 0x3E, 0x08, 0x08, 0x00}, // '+'
+    {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01}, // ','
+    {0x00, 0x00, 0x00, 0x00, 0x03, 0x00, 0x00, 0x00}, // '-'
+    {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02}, // '.'
+    {0x02, 0x02, 0x01, 0x01, 0x01, 0x00, 0x00, 0x00}, // '/'
+    {0x1C, 0x36, 0x22, 0x22, 0x22, 0x22, 0x36, 0x1C}, // '0'
+    {0x0C, 0x0A, 0x08, 0x08, 0x08, 0x08, 0x08, 0x08}, // '1'
+    {0x0C, 0x12, 0x10, 0x10, 0x08, 0x04, 0x02, 0x1F}, // '2'
+    {0x0E, 0x11, 0x10, 0x0C, 0x10, 0x11, 0x11, 0x0E}, // '3'
+    {0x10, 0x18, 0x14, 0x14, 0x12, 0x3F, 0x10, 0x10}, // '4'
+    {0x1E, 0x01, 0x01, 0x0D, 0x13, 0x10, 0x11, 0x0E}, // '5'
+    {0x1C, 0x24, 0x22, 0x1E, 0x22, 0x22, 0x22, 0x1C}, // '6'
+    {0x1F, 0x10, 0x08, 0x08, 0x04, 0x04, 0x02, 0x02}, // '7'
+    {0x1C, 0x22, 0x22, 0x1C, 0x22, 0x22, 0x22, 0x1C}, // '8'
+    {0x1C, 0x22, 0x22, 0x22, 0x3C, 0x22, 0x12, 0x1C}, // '9'
+    {0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x00, 0x02}, // ':'
+    {0x00, 0x00, 0x02, 0x00, 0x00, 0x00, 0x00, 0x02}, // ';'
+    {0x00, 0x00, 0x00, 0x18, 0x06, 0x02, 0x0C, 0x10}, // '<'
+    {0x00, 0x00, 0x00, 0x1E, 0x00, 0x1E, 0x00, 0x00}, // '='
+    {0x00, 0x00, 0x00, 0x06, 0x18, 0x10, 0x0C, 0x02}, // '>'
+    {0x0C, 0x12, 0x12, 0x10, 0x08, 0x08, 0x00, 0x08}, // '?'
+    {0x70, 0x8C, 0x74, 0x4A, 0x4A, 0x2A, 0xDA, 0x04}, // '@'
+    {0x08, 0x0C, 0x14, 0x12, 0x1E, 0x22, 0x22, 0x21}, // 'A'
+    {0x1E, 0x22, 0x22, 0x12, 0x3E, 0x22, 0x22, 0x1E}, // 'B'
+    {0x38, 0x44, 0x42, 0x02, 0x02, 0x42, 0x44, 0x3C}, // 'C'
+    {0x1E, 0x22, 0x42, 0x42, 0x42, 0x42, 0x22, 0x1E}, // 'D'
+    {0x3E, 0x02, 0x02, 0x02, 0x1E, 0x02, 0x02, 0x3E}, // 'E'
+    {0x3E, 0x02, 0x02, 0x02, 0x1E, 0x02, 0x02, 0x02}, // 'F'
+    {0x38, 0x64, 0x42, 0x02, 0x72, 0x42, 0x64, 0x5C}, // 'G'
+    {0x42, 0x42, 0x42, 0x42, 0x7E, 0x42, 0x42, 0x42}, // 'H'
+    {0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02}, // 'I'
+    {0x10, 0x10, 0x10, 0x10, 0x10, 0x12, 0x12, 0x0C}, // 'J'
+    {0x22, 0x12, 0x0A, 0x0A, 0x0E, 0x0A, 0x12, 0x22}, // 'K'
+    {0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x3E}, // 'L'
+    {0xC6, 0xC6, 0xC6, 0xAA, 0xAA, 0xAA, 0x9A, 0x92}, // 'M'
+    {0x26, 0x26, 0x26, 0x2A, 0x2A, 0x2A, 0x32, 0x32}, // 'N'
+    {0x38, 0x44, 0x82, 0x82, 0x82, 0x82, 0x44, 0x38}, // 'O'
+    {0x1E, 0x22, 0x22, 0x22, 0x1E, 0x02, 0x02, 0x02}, // 'P'
+    {0x38, 0x44, 0x82, 0x82, 0x82, 0x82, 0x44, 0xF8}, // 'Q'
+    {0x1E, 0x22, 0x22, 0x22, 0x1E, 0x32, 0x22, 0x22}, // 'R'
+    {0x1C, 0x22, 0x02, 0x04, 0x38, 0x20, 0x22, 0x1C}, // 'S'
+    {0x3E, 0x08, 0x08, 0x08, 0x08, 0x08, 0x08, 0x08}, // 'T'
+    {0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x22, 0x1C}, // 'U'
+    {0x21, 0x22, 0x22, 0x12, 0x14, 0x14, 0x0C, 0x08}, // 'V'
+    {0x31, 0x32, 0x32, 0x2A, 0xAA, 0xCA, 0xCC, 0xC4}, // 'W'
+    {0x22, 0x12, 0x14, 0x0C, 0x0C, 0x14, 0x12, 0x22}, // 'X'
+    {0x22, 0x22, 0x14, 0x14, 0x08, 0x08, 0x08, 0x08}, // 'Y'
+    {0x3E, 0x20, 0x10, 0x08, 0x08, 0x04, 0x02, 0x3E}, // 'Z'
+    {0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02}, // '['
+    {0x00, 0x00, 0x00, 0x01, 0x01, 0x01, 0x01, 0x02}, // '\\'
+    {0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01}, // ']'
+    {0x00, 0x00, 0x0C, 0x0A, 0x0A, 0x12, 0x00, 0x00}, // '^'
+    {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}, // '_'
+    {0x00, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}, // '`'
+    {0x00, 0x00, 0x1C, 0x12, 0x18, 0x16, 0x12, 0x1E}, // 'a'
+    {0x02, 0x02, 0x1E, 0x22, 0x22, 0x22, 0x22, 0x1E}, // 'b'
+    {0x00, 0x00, 0x1C, 0x22, 0x02, 0x02, 0x22, 0x1C}, // 'c'
+    {0x20, 0x20, 0x3C, 0x22, 0x22, 0x22, 0x22, 0x3C}, // 'd'
+    {0x00, 0x00, 0x1C, 0x22, 0x3E, 0x02, 0x22, 0x1C}, // 'e'
+    {0x02, 0x02, 0x07, 0x02, 0x02, 0x02, 0x02, 0x02}, // 'f'
+    {0x00, 0x00, 0x3C, 0x22, 0x22, 0x22, 0x22, 0x3C}, // 'g'
+    {0x02, 0x02, 0x1E, 0x26, 0x22, 0x22, 0x22, 0x22}, // 'h'
+    {0x02, 0x00, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02}, // 'i'
+    {0x02, 0x00, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02}, // 'j'
+    {0x02, 0x02, 0x12, 0x0A, 0x06, 0x0A, 0x0A, 0x12}, // 'k'
+    {0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x06}, // 'l'
+    {0x00, 0x00, 0xEE, 0x92, 0x92, 0x92, 0x92, 0x92}, // 'm'
+    {0x00, 0x00, 0x1E, 0x26, 0x22, 0x22, 0x22, 0x22}, // 'n'
+    {0x00, 0x00, 0x1C, 0x22, 0x22, 0x22, 0x22, 0x1C}, // 'o'
+    {0x00, 0x00, 0x1E, 0x22, 0x22, 0x22, 0x22, 0x1E}, // 'p'
+    {0x00, 0x00, 0x3C, 0x22, 0x22, 0x22, 0x22, 0x3C}, // 'q'
+    {0x00, 0x00, 0x0E, 0x02, 0x02, 0x02, 0x02, 0x02}, // 'r'
+    {0x00, 0x00, 0x0E, 0x12, 0x06, 0x18, 0x12, 0x1E}, // 's'
+    {0x02, 0x02, 0x07, 0x02, 0x02, 0x02, 0x02, 0x06}, // 't'
+    {0x00, 0x00, 0x22, 0x22, 0x22, 0x22, 0x32, 0x3C}, // 'u'
+    {0x00, 0x00, 0x11, 0x11, 0x0A, 0x0A, 0x0A, 0x04}, // 'v'
+    {0x00, 0x00, 0x99, 0x59, 0x5A, 0x56, 0x66, 0x24}, // 'w'
+    {0x00, 0x00, 0x04, 0x05, 0x02, 0x03, 0x05, 0x04}, // 'x'
+    {0x00, 0x00, 0x11, 0x11, 0x0A, 0x0A, 0x0A, 0x04}, // 'y'
+    {0x00, 0x00, 0x1E, 0x10, 0x08, 0x04, 0x02, 0x1E}, // 'z'
+    {0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02}, // '{'
+    {0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02}, // '|'
+    {0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02, 0x02}, // '}'
+    {0x00, 0x00, 0x00, 0x00, 0x16, 0x1A, 0x00, 0x00}, // '~'
+};
+
+
+static inline const char* skipWs(const char* p)
+{
+    while (*p == ' ' || *p == '\t' || *p == '\r' || *p == '\n') ++p;
+    return p;
+}
+
+static bool parseJsonString(const char*& p, char* out, u32 outSize)
+{
+    p = skipWs(p);
+    if (*p != '"') return false;
+    ++p;
+    u32 n = 0;
+    while (*p && *p != '"')
+    {
+        char c = *p++;
+        if (c == '\\')
+        {
+            const char e = *p++;
+            if (!e) return false;
+            switch (e)
+            {
+                case 'n': c = '\n'; break;
+                case 'r': c = '\r'; break;
+                case 't': c = '\t'; break;
+                case '"': c = '"'; break;
+                case '\\': c = '\\'; break;
+                case '/': c = '/'; break;
+                case 'b': c = '\b'; break;
+                case 'f': c = '\f'; break;
+                case 'u':
+                    // Cheat names/codes are expected to be ASCII. Consume the
+                    // four hex digits and show '?' instead of expanding UTF-16.
+                    for (int i = 0; i < 4 && *p; ++i) ++p;
+                    c = '?';
+                    break;
+                default: c = e; break;
+            }
+        }
+        if (out && outSize && n + 1 < outSize)
+            out[n++] = c;
+    }
+    if (*p != '"') return false;
+    ++p;
+    if (out && outSize) out[n] = 0;
+    return true;
+}
+
+static void skipJsonValue(const char*& p)
+{
+    p = skipWs(p);
+    if (*p == '"')
+    {
+        parseJsonString(p, nullptr, 0);
+        return;
+    }
+    if (*p == '{' || *p == '[')
+    {
+        const char open = *p++;
+        const char close = open == '{' ? '}' : ']';
+        int depth = 1;
+        while (*p && depth > 0)
+        {
+            if (*p == '"')
+            {
+                parseJsonString(p, nullptr, 0);
+                continue;
+            }
+            if (*p == open) ++depth;
+            else if (*p == close) --depth;
+            ++p;
+        }
+        return;
+    }
+    while (*p && *p != ',' && *p != '}' && *p != ']') ++p;
 }
 
 static bool parseHex(const char*& p, u32& value, u32 minDigits, u32 maxDigits, u32& digits)
@@ -43,7 +217,7 @@ static bool parseHex(const char*& p, u32& value, u32 minDigits, u32 maxDigits, u
     while (*p == ' ' || *p == '\t') ++p;
     while (digits < maxDigits)
     {
-        char c = *p;
+        const char c = *p;
         u32 nibble;
         if (c >= '0' && c <= '9') nibble = c - '0';
         else if (c >= 'A' && c <= 'F') nibble = c - 'A' + 10;
@@ -56,6 +230,40 @@ static bool parseHex(const char*& p, u32& value, u32 minDigits, u32 maxDigits, u
     return digits >= minDigits;
 }
 
+static char hexDigit(u8 value)
+{
+    value &= 0xF;
+    return value < 10 ? ('0' + value) : ('A' + value - 10);
+}
+
+static void buildVersionPath(char* out, const GbaHeader& header)
+{
+    static const char prefix[] = "/_gba/cheats/";
+    char* d = out;
+    for (const char* s = prefix; *s; ++s) *d++ = *s;
+    *d++ = header.gameCode & 0xFF;
+    *d++ = (header.gameCode >> 8) & 0xFF;
+    *d++ = (header.gameCode >> 16) & 0xFF;
+    *d++ = (header.gameCode >> 24) & 0xFF;
+    *d++ = hexDigit(header.softwareVersion >> 4);
+    *d++ = hexDigit(header.softwareVersion);
+    *d++ = '.'; *d++ = 'j'; *d++ = 's'; *d++ = 'o'; *d++ = 'n'; *d = 0;
+}
+
+static void buildMakerPath(char* out, const GbaHeader& header)
+{
+    static const char prefix[] = "/_gba/cheats/";
+    char* d = out;
+    for (const char* s = prefix; *s; ++s) *d++ = *s;
+    *d++ = header.gameCode & 0xFF;
+    *d++ = (header.gameCode >> 8) & 0xFF;
+    *d++ = (header.gameCode >> 16) & 0xFF;
+    *d++ = (header.gameCode >> 24) & 0xFF;
+    *d++ = header.makerCode & 0xFF;
+    *d++ = (header.makerCode >> 8) & 0xFF;
+    *d++ = '.'; *d++ = 'j'; *d++ = 's'; *d++ = 'o'; *d++ = 'n'; *d = 0;
+}
+
 bool CheatService::ParseCodeLine(const char* text, CodeLine& line)
 {
     if (!text) return false;
@@ -64,7 +272,7 @@ bool CheatService::ParseCodeLine(const char* text, CodeLine& line)
     if (!parseHex(p, line.op1, 8, 8, d1)) return false;
     if (!parseHex(p, line.op2, 4, 8, d2)) return false;
     while (*p == ' ' || *p == '\t' || *p == '\r' || *p == '\n') ++p;
-    if (*p != '\0') return false;
+    if (*p != 0) return false;
     line.operandDigits = static_cast<u8>(d2);
     return true;
 }
@@ -82,58 +290,82 @@ bool CheatService::TryLoadFile(const char* path)
         return false;
     }
 
-    auto buffer = std::make_unique<char[]>(fileSize + 1);
     UINT bytesRead = 0;
-    const FRESULT readResult = f_read(&file, buffer.get(), fileSize, &bytesRead);
+    const FRESULT result = f_read(&file, sCheatFileBuffer, fileSize, &bytesRead);
     f_close(&file);
-    if (readResult != FR_OK || bytesRead != fileSize)
+    if (result != FR_OK || bytesRead != fileSize)
         return false;
-    buffer[fileSize] = '\0';
+    sCheatFileBuffer[fileSize] = 0;
 
-    DynamicJsonDocument json(CHEAT_JSON_CAPACITY);
-    const auto result = deserializeJson(json, buffer.get(), fileSize);
-    if (result != DeserializationError::Ok)
-    {
-        gLogger->Log(LogLevel::Debug, "Cheat JSON parse error: %d (%s)\n", result, path);
-        return false;
-    }
-
-    JsonArrayConst cheats = json["cheats"].as<JsonArrayConst>();
-    if (cheats.isNull())
-        return false;
+    const char* p = strstr(sCheatFileBuffer, "\"cheats\"");
+    if (!p) return false;
+    p = strchr(p, '[');
+    if (!p) return false;
+    ++p;
 
     _cheatCount = 0;
-    for (JsonObjectConst object : cheats)
+    while (*p && _cheatCount < MaxCheats)
     {
-        if (_cheatCount >= MaxCheats)
-            break;
+        p = skipWs(p);
+        if (*p == ']') break;
+        if (*p == ',') { ++p; continue; }
+        if (*p != '{') { ++p; continue; }
+        ++p;
 
-        const char* name = object["name"] | "Unnamed cheat";
-        JsonArrayConst codes = object["codes"].as<JsonArrayConst>();
-        if (codes.isNull())
-            continue;
+        Cheat cheat {};
+        strcpy(cheat.name, "Unnamed cheat");
 
-        Cheat& cheat = _cheats[_cheatCount];
-        memset(&cheat, 0, sizeof(cheat));
-        strncpy(cheat.name, name, MaxNameLength - 1);
-        cheat.name[MaxNameLength - 1] = '\0';
-
-        for (JsonVariantConst value : codes)
+        while (*p)
         {
-            if (cheat.lineCount >= MaxCodeLines)
-                break;
-            if (!value.is<const char*>())
+            p = skipWs(p);
+            if (*p == '}') { ++p; break; }
+            if (*p == ',') { ++p; continue; }
+
+            char key[16];
+            if (!parseJsonString(p, key, sizeof(key)))
+            {
+                ++p;
                 continue;
-            CodeLine line {};
-            if (ParseCodeLine(value.as<const char*>(), line))
-                cheat.lines[cheat.lineCount++] = line;
+            }
+            p = skipWs(p);
+            if (*p != ':') return false;
+            ++p;
+            p = skipWs(p);
+
+            if (!strcmp(key, "name"))
+            {
+                if (!parseJsonString(p, cheat.name, MaxNameLength)) return false;
+            }
+            else if (!strcmp(key, "codes"))
+            {
+                if (*p != '[') return false;
+                ++p;
+                while (*p)
+                {
+                    p = skipWs(p);
+                    if (*p == ']') { ++p; break; }
+                    if (*p == ',') { ++p; continue; }
+                    char codeText[32];
+                    if (!parseJsonString(p, codeText, sizeof(codeText))) return false;
+                    if (cheat.lineCount < MaxCodeLines)
+                    {
+                        CodeLine line {};
+                        if (ParseCodeLine(codeText, line))
+                            cheat.lines[cheat.lineCount++] = line;
+                    }
+                }
+            }
+            else
+            {
+                skipJsonValue(p);
+            }
         }
 
-        if (cheat.lineCount != 0)
-            ++_cheatCount;
+        if (cheat.lineCount)
+            _cheats[_cheatCount++] = cheat;
     }
 
-    if (_cheatCount != 0)
+    if (_cheatCount)
         gLogger->Log(LogLevel::Debug, "Loaded %u cheats from %s\n", _cheatCount, path);
     return _cheatCount != 0;
 }
@@ -141,40 +373,69 @@ bool CheatService::TryLoadFile(const char* path)
 bool CheatService::LoadForRom(const GbaHeader& header)
 {
     _cheatCount = 0;
-    char path[96];
-    const char c0 = header.gameCode & 0xFF;
-    const char c1 = (header.gameCode >> 8) & 0xFF;
-    const char c2 = (header.gameCode >> 16) & 0xFF;
-    const char c3 = (header.gameCode >> 24) & 0xFF;
-
-    mini_snprintf(path, sizeof(path), CHEAT_PATH_VERSION_FORMAT,
-        c0, c1, c2, c3, header.softwareVersion);
-    if (TryLoadFile(path))
-        return true;
-
-    // Compatibility alias: some ROM databases/users call GAMECODE+makerCode the ROM ID.
-    // Example: Drill Dozer has gameCode V49E and makerCode "01" => V49E01.json.
-    const char maker0 = header.makerCode & 0xFF;
-    const char maker1 = (header.makerCode >> 8) & 0xFF;
-    mini_snprintf(path, sizeof(path), CHEAT_PATH_MAKER_FORMAT,
-        c0, c1, c2, c3, maker0, maker1);
+    char path[64];
+    buildVersionPath(path, header);
+    if (TryLoadFile(path)) return true;
+    buildMakerPath(path, header);
     return TryLoadFile(path);
+}
+
+static void uiClear()
+{
+    for (u32 i = 0; i < 32 * 32; ++i)
+        SUB_BG_MAP_BASE[i] = 0;
+}
+
+static void uiPutChar(u32 x, u32 y, char c)
+{
+    if (x >= 32 || y >= 32) return;
+    u8 uc = static_cast<u8>(c);
+    if (uc < 32 || uc > 126) uc = '?';
+    SUB_BG_MAP_BASE[y * 32 + x] = static_cast<u16>(uc - 32);
+}
+
+static void uiPrint(u32 x, u32 y, const char* text, u32 maxChars = 32)
+{
+    while (*text && x < 32 && maxChars--)
+        uiPutChar(x++, y, *text++);
+}
+
+static void uiInitFont()
+{
+    SUB_BG_PALETTE[0] = 0x0000;
+    SUB_BG_PALETTE[1] = 0x7FFF;
+
+    for (u32 g = 0; g < 95; ++g)
+    {
+        volatile u8* tile = SUB_BG_TILE_BASE + g * 32;
+        for (u32 y = 0; y < 8; ++y)
+        {
+            const u8 bits = sFont8x8[g][y];
+            for (u32 pair = 0; pair < 4; ++pair)
+            {
+                const u32 x = pair * 2;
+                const u8 p0 = (bits >> x) & 1;
+                const u8 p1 = (bits >> (x + 1)) & 1;
+                tile[y * 4 + pair] = p0 | (p1 << 4);
+            }
+        }
+    }
 }
 
 void CheatService::InitializeUi()
 {
-    if (!HasCheats())
-        return;
+    if (!HasCheats()) return;
 
-    // A persistent touch UI needs the lower LCD. Keep GBA rendering on the main engine/top LCD.
     sys_setMainEngineToTopScreen();
     sysipc_setTopBacklight(true);
     sysipc_setBottomBacklight(true);
 
     mem_setVramHMapping(MEM_VRAM_H_SUB_BG_00000);
-    videoSetModeSub(MODE_0_2D);
-    consoleInit(&sCheatConsole, 0, BgType_Text4bpp, BgSize_T_256x256, 8, 0, false, true);
-    consoleSelect(&sCheatConsole);
+    // Sub engine, display mode 1, BG0 enabled. BG0 uses 4bpp tiles at 0x0000
+    // and a 32x32 tile map at screen base block 8 (offset 0x4000).
+    REG_DISPCNT_SUB = (1u << 16) | (1u << 8);
+    REG_BG0CNT_SUB = (8u << 8);
+    uiInitFont();
     _uiInitialized = true;
     RenderClosed();
 }
@@ -182,31 +443,32 @@ void CheatService::InitializeUi()
 void CheatService::RenderClosed()
 {
     if (!_uiInitialized) return;
-    consoleSelect(&sCheatConsole);
-    consoleClear();
-    iprintf("\x1b[22;26H[CHEAT]");
+    uiClear();
+    uiPrint(CHEAT_BUTTON_COL, CHEAT_BUTTON_ROW, "[CHEAT]", 7);
 }
 
 void CheatService::RenderMenu()
 {
     if (!_uiInitialized) return;
-    consoleSelect(&sCheatConsole);
-    consoleClear();
-    iprintf("CHEATS  A: toggle  D-Pad: move\n");
-    iprintf("Tap CHEAT again to resume\n\n");
+    uiClear();
+    uiPrint(0, 0, "CHEATS   A: TOGGLE   D-PAD: MOVE");
+    uiPrint(0, 1, "TAP [CHEAT] AGAIN TO RESUME");
 
     if (_selected < _scroll) _scroll = _selected;
     if (_selected >= _scroll + CHEAT_VISIBLE_ROWS)
         _scroll = _selected - CHEAT_VISIBLE_ROWS + 1;
 
-    const u32 end = std::min(_cheatCount, _scroll + CHEAT_VISIBLE_ROWS);
+    const u32 end = (_scroll + CHEAT_VISIBLE_ROWS < _cheatCount)
+        ? (_scroll + CHEAT_VISIBLE_ROWS) : _cheatCount;
     for (u32 i = _scroll; i < end; ++i)
     {
-        const char cursor = i == _selected ? '>' : ' ';
-        const char enabled = _cheats[i].enabled ? 'X' : ' ';
-        iprintf("%c%c %-28.28s\n", cursor, enabled, _cheats[i].name);
+        const u32 row = 3 + i - _scroll;
+        uiPutChar(0, row, i == _selected ? '>' : ' ');
+        uiPutChar(1, row, _cheats[i].enabled ? 'X' : ' ');
+        uiPutChar(2, row, ' ');
+        uiPrint(3, row, _cheats[i].name, 29);
     }
-    iprintf("\x1b[22;26H[CHEAT]");
+    uiPrint(CHEAT_BUTTON_COL, CHEAT_BUTTON_ROW, "[CHEAT]", 7);
 }
 
 void CheatService::SetPaused(bool paused)
@@ -273,10 +535,11 @@ void CheatService::RunMenuLoop()
         }
         if ((down & KEY_RIGHT) && _selected + 1 < _cheatCount)
         {
-            _selected = std::min(_cheatCount - 1, _selected + CHEAT_VISIBLE_ROWS);
+            const u32 next = _selected + CHEAT_VISIBLE_ROWS;
+            _selected = next < _cheatCount ? next : _cheatCount - 1;
             redraw = true;
         }
-        if ((down & KEY_A) && _cheatCount != 0)
+        if ((down & KEY_A) && _cheatCount)
         {
             _cheats[_selected].enabled = !_cheats[_selected].enabled;
             redraw = true;
@@ -286,11 +549,9 @@ void CheatService::RunMenuLoop()
             _menuOpen = false;
             break;
         }
-        if (redraw)
-            RenderMenu();
+        if (redraw) RenderMenu();
     }
 
-    // Do not leak the menu A/D-pad press into the game.
     while (readKeysHeld() != 0)
         waitNextFramePolling();
 
@@ -304,9 +565,8 @@ void CheatService::ApplyCodeBreakerCheat(const Cheat& cheat)
     for (u32 i = 0; i < cheat.lineCount; ++i)
     {
         const CodeLine& line = cheat.lines[i];
-        // The supplied GBA codes use CodeBreaker Advance's 8+4 hex format.
         if (line.operandDigits > 4)
-            continue; // AR/GS encrypted 8+8 codes are intentionally not mis-decoded.
+            continue;
 
         const u32 type = line.op1 >> 28;
         const u32 address = line.op1 & 0x0FFFFFFF;
@@ -320,42 +580,41 @@ void CheatService::ApplyCodeBreakerCheat(const Cheat& cheat)
 
         switch (type)
         {
-            case 0x0: // Game ID / master-code metadata: no hardware hook needed in an emulator.
-            case 0x1: // Master-code hook: no-op for the emulator.
+            case 0x0:
+            case 0x1:
                 break;
-            case 0x2: // 16-bit OR
+            case 0x2:
                 memu_store16FromC(address, memu_load16FromC(address) | operand);
                 break;
-            case 0x3: // 8-bit write
+            case 0x3:
                 memu_store8FromC(address, operand & 0xFF);
                 break;
-            case 0x6: // 16-bit AND
+            case 0x6:
                 memu_store16FromC(address, memu_load16FromC(address) & operand);
                 break;
-            case 0x7: // execute following line if equal
+            case 0x7:
                 executeNext = memu_load16FromC(address) == operand;
                 break;
-            case 0x8: // 16-bit write
+            case 0x8:
                 memu_store16FromC(address, operand);
                 break;
-            case 0xA: // execute following line if not equal
+            case 0xA:
                 executeNext = memu_load16FromC(address) != operand;
                 break;
-            case 0xB: // execute following line if greater than
+            case 0xB:
                 executeNext = memu_load16FromC(address) > operand;
                 break;
-            case 0xC: // execute following line if less than
+            case 0xC:
                 executeNext = memu_load16FromC(address) < operand;
                 break;
             case 0xD:
-                // Common CodeBreaker key conditional: D0000020 XXXX checks GBA KEYINPUT.
                 if (address == 0x20)
                     executeNext = (memu_load16FromC(0x04000130) & operand) == 0;
                 break;
-            case 0xE: // 16-bit add
+            case 0xE:
                 memu_store16FromC(address, memu_load16FromC(address) + operand);
                 break;
-            case 0xF: // execute following line if any masked bit is set
+            case 0xF:
                 executeNext = (memu_load16FromC(address) & operand) != 0;
                 break;
             default:
@@ -367,17 +626,13 @@ void CheatService::ApplyCodeBreakerCheat(const Cheat& cheat)
 void CheatService::ApplyEnabledCheats()
 {
     for (u32 i = 0; i < _cheatCount; ++i)
-    {
         if (_cheats[i].enabled)
             ApplyCodeBreakerCheat(_cheats[i]);
-    }
 }
 
 void CheatService::OnVBlank()
 {
-    if (!HasCheats())
-        return;
-
+    if (!HasCheats()) return;
     ApplyEnabledCheats();
     if (ReadCheatButtonPressed())
         RunMenuLoop();

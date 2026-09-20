@@ -1,0 +1,19 @@
+Cheat v2 linker/build fix
+=========================
+
+Changes from v1:
+- Removed libnds PrintConsole/iprintf from the ARM9 cheat service.
+- Removed the extra ArduinoJson/DynamicJsonDocument instantiation from cheat loading.
+- Added a small dedicated JSON reader for the controlled cheat-file schema.
+- Added a direct 4bpp tile text UI in Sub BG using VRAM H.
+- Moved CheatService.o text/rodata out of the 128 KiB VRAM-A code region and into EWRAM.
+- Uses an indirect BLX from the ITCM VBlank handler to the EWRAM cheat handler.
+- Keeps grouped multi-line cheats and the same V49E00/V49E01 fallback behavior.
+- GitHub Actions now captures build.log and uploads it as the build-log artifact even when make fails.
+
+Static validation performed here:
+- CheatService.cpp passes host C++23 syntax checking with stubs for DS-specific APIs.
+- V49E00.json and V49E01.json parse correctly.
+- No PrintConsole/consoleInit/iprintf/ArduinoJson/DynamicJson remains in CheatService.cpp.
+
+This environment does not contain devkitARM/libnds/libtwl, so the final NDS link cannot be executed here.

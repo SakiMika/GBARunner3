@@ -15,8 +15,16 @@ jobs:
         with:
           submodules: recursive
       - name: Make application
+        shell: bash
         run: |
-          make -C code
+          set -o pipefail
+          make -C code 2>&1 | tee build.log
+      - name: Upload build log
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          path: build.log
+          name: build-log
       - name: Prepare for build publishing
         run: |
           mkdir -p out/_gba/

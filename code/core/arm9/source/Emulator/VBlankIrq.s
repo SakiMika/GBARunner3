@@ -9,7 +9,8 @@ arm_func emu_vblankIrq
     ldr sp,= gCheatIrqStack + 4096
     push {r0-r3,r12,lr}
 #ifndef GBAR3_TEST
-    bl cheat_onVBlank
+    ldr r12,= cheat_onVBlank
+    blx r12
 #endif
     pop {r0-r3,r12,lr}
     // For center and mask display capture has to be enabled every frame
