@@ -11,7 +11,7 @@ public:
     static constexpr u32 MaxNameLength = 48;
 
     bool LoadForRom(const GbaHeader& header);
-    void InitializeUi();
+    void InitializeUi() __attribute__((long_call));
     bool HasCheats() const { return _cheatCount != 0; }
     void OnVBlank();
 

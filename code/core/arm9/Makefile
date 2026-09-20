@@ -72,6 +72,12 @@ CFLAGS	+=	$(INCLUDE)
 CXXFLAGS	:= $(CFLAGS) -std=gnu++23 -Wno-volatile -fno-rtti -fno-exceptions -fno-threadsafe-statics\
 				-Wsuggest-override -Werror=suggest-override
 
+# CheatRuntime is linked in EWRAM (0x0204xxxx) and calls code in VRAM/libnds.
+# Use long calls only for this post-boot translation unit; the loader/parser stays
+# in VRAM A so its boot-debug checkpoints remain directly executable.
+CheatRuntime.o: CXXFLAGS += -mlong-calls
+BootDebug.o: CXXFLAGS += -Os
+
 ASFLAGS	:=	-g $(ARCH) $(INCLUDE)
 LDFLAGS	=	-T ../gbarunner9.ld -g $(ARCH) -Wl,-Map,$(notdir $*.map),--use-blx,--no-warn-rwx-segments,--gc-sections -ffunction-sections -fdata-sections
 

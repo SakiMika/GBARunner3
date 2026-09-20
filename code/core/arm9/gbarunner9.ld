@@ -38,15 +38,15 @@ SECTIONS
 
 	.text :   /* ALIGN (4): */
 	{
-		*(EXCLUDE_FILE(*.itcm* *.vectors* *.twl*) .text)
-		*(EXCLUDE_FILE(*.itcm* *.vectors* *.twl*) .stub)
-		*(EXCLUDE_FILE(*.itcm* *.vectors* *.twl*) .text.*)
+		*(EXCLUDE_FILE(*.itcm* *.vectors* *.twl* CheatRuntime.o) .text)
+		*(EXCLUDE_FILE(*.itcm* *.vectors* *.twl* CheatRuntime.o) .stub)
+		*(EXCLUDE_FILE(*.itcm* *.vectors* *.twl* CheatRuntime.o) .text.*)
 		KEEP (*(SORT_NONE(.init)))
-		*(.text.*)
-		*(.stub)
+		*(EXCLUDE_FILE(CheatRuntime.o) .text.*)
+		*(EXCLUDE_FILE(CheatRuntime.o) .stub)
 		/* .gnu.warning sections are handled specially by elf32.em.  */
 		*(.gnu.warning)
-		*(.gnu.linkonce.t*)
+		*(EXCLUDE_FILE(CheatRuntime.o) .gnu.linkonce.t*)
 		__glue_start = ABSOLUTE(.);
 		*(.glue_7)
 		*(.glue_7t)
@@ -64,11 +64,11 @@ SECTIONS
 
 	.rodata :
 	{
-		*(.rodata)
+		*(EXCLUDE_FILE(CheatRuntime.o) .rodata)
 		*all.rodata*(*)
-		*(.roda)
-		*(.rodata.*)
-		*(.gnu.linkonce.r*)
+		*(EXCLUDE_FILE(CheatRuntime.o) .roda)
+		*(EXCLUDE_FILE(CheatRuntime.o) .rodata.*)
+		*(EXCLUDE_FILE(CheatRuntime.o) .gnu.linkonce.r*)
 		SORT(CONSTRUCTORS)
 		. = ALIGN(4);   /* REQUIRED. LD is flaky without it. */
 	} >vrama AT> vramab :main = 0xff
@@ -143,9 +143,9 @@ SECTIONS
 	
 	.data ALIGN(4) : 	{
 		__data_start = ABSOLUTE(.);
-		*(.data)
-		*(.data.*)
-		*(.gnu.linkonce.d*)
+		*(EXCLUDE_FILE(CheatRuntime.o) .data)
+		*(EXCLUDE_FILE(CheatRuntime.o) .data.*)
+		*(EXCLUDE_FILE(CheatRuntime.o) .gnu.linkonce.d*)
 		CONSTRUCTORS
 		. = ALIGN(4);
 		__data_end = ABSOLUTE(.) ;
@@ -248,8 +248,10 @@ SECTIONS
 	{
 	    __ewram_lma = LOADADDR(.ewram);
 	    __ewram_start = ABSOLUTE(.);
-	    /* Runtime buffers/state live in EWRAM, but executable cheat code stays
-	       in VRAM A. This avoids executing freshly copied code from cached RAM. */
+	    /* Keep the boot-critical cheat loader/parser in VRAM A so the debug
+	       checkpoints can prove exactly how far file loading gets.  Only the
+	       post-boot UI/executor is moved to EWRAM to recover VRAM-A space. */
+	    CheatRuntime.o(.text .text.* .stub .gnu.linkonce.t* .rodata .roda .rodata.* .gnu.linkonce.r* .data .data.* .gnu.linkonce.d*)
 	    *(.ewram)
 	    . = ALIGN(4);    /* REQUIRED. LD is flaky without it. */
 	    __ewram_end = ABSOLUTE(.);
@@ -263,6 +265,7 @@ SECTIONS
 		   cheat translation unit.  The explicit .ewram.bss attributes cover
 		   the large buffers, but GCC may still emit auxiliary .bss.* symbols. */
 		CheatService.o(.bss .bss.* .gnu.linkonce.b* COMMON)
+		CheatRuntime.o(.bss .bss.* .gnu.linkonce.b* COMMON)
 		BootDebug.o(.bss .bss.* .gnu.linkonce.b* COMMON)
 		*(.ewram.bss*)
 		. = ALIGN(4);    /* REQUIRED. LD is flaky without it. */
@@ -288,8 +291,8 @@ SECTIONS
 		__bss_start = ABSOLUTE(.);
 		__bss_start__ = ABSOLUTE(.);
 		*(.dynbss)
-		*(EXCLUDE_FILE(CheatService.o BootDebug.o) .gnu.linkonce.b*)
-		*(EXCLUDE_FILE(CheatService.o BootDebug.o) .bss*)
+		*(EXCLUDE_FILE(CheatService.o CheatRuntime.o BootDebug.o) .gnu.linkonce.b*)
+		*(EXCLUDE_FILE(CheatService.o CheatRuntime.o BootDebug.o) .bss*)
 		*(COMMON)
 		. = ALIGN(4);    /* REQUIRED. LD is flaky without it. */
 	} >vrama :NONE

@@ -96,7 +96,7 @@ static const char sBootDebugStages[][32] = {
 };
 
 [[gnu::section(".ewram"), gnu::aligned(4)]]
-static const char sBootDebugHeader[] = "GBARUNNER3 V12 BOOT DEBUG";
+static const char sBootDebugHeader[] = "GBARUNNER3 V13 BOOT DEBUG";
 [[gnu::section(".ewram"), gnu::aligned(4)]]
 static const char sBootDebugCheat[] = "[CHEAT]";
 
