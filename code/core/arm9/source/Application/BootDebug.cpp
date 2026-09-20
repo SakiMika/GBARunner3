@@ -11,6 +11,14 @@
 #define BOOTDBG_CHEAT_ROW      23u
 #define BOOTDBG_CHEAT_COL      25u
 
+// Keep the diagnostic overlay self-contained.  The ARM9 core normally gets
+// these aliases indirectly through libtwl graphics headers, but BootDebug only
+// needs three fixed NDS 2D-engine-B registers.  Using private aliases prevents
+// this debug-only file from depending on transitive header definitions.
+#define BOOTDBG_REG_DISPCNT_SUB       (*(volatile u32*)0x04001000)
+#define BOOTDBG_REG_BG0CNT_SUB        (*(volatile u16*)0x04001008)
+#define BOOTDBG_REG_MASTER_BRIGHT_SUB (*(volatile u16*)0x0400106C)
+
 [[gnu::section(".ewram.bss"), gnu::aligned(4)]]
 static u32 sBootDebugNextRow;
 [[gnu::section(".ewram.bss"), gnu::aligned(4)]]
@@ -74,7 +82,7 @@ static const char sBootDebugStages[][32] = {
 };
 
 [[gnu::section(".ewram"), gnu::aligned(4)]]
-static const char sBootDebugHeader[] = "GBARUNNER3 V10 BOOT DEBUG";
+static const char sBootDebugHeader[] = "GBARUNNER3 V11 BOOT DEBUG";
 [[gnu::section(".ewram"), gnu::aligned(4)]]
 static const char sBootDebugCheat[] = "[CHEAT]";
 
@@ -229,9 +237,9 @@ static void initFont()
 void BootDebug_RestoreVideo()
 {
     mem_setVramHMapping(MEM_VRAM_H_SUB_BG_00000);
-    REG_DISPCNT_SUB = (1u << 16) | (1u << 8);
-    REG_BG0CNT_SUB = (8u << 8);
-    REG_MASTER_BRIGHT_SUB = 0;
+    BOOTDBG_REG_DISPCNT_SUB = (1u << 16) | (1u << 8);
+    BOOTDBG_REG_BG0CNT_SUB = (8u << 8);
+    BOOTDBG_REG_MASTER_BRIGHT_SUB = 0;
 }
 
 void BootDebug_Init()
@@ -247,7 +255,7 @@ void BootDebug_Init()
 void BootDebug_EnableBottomBacklight()
 {
     sysipc_setBottomBacklight(true);
-    REG_MASTER_BRIGHT_SUB = 0;
+    BOOTDBG_REG_MASTER_BRIGHT_SUB = 0;
 }
 
 static void scrollLog()
