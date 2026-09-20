@@ -1,0 +1,16 @@
+GBARunner3 cheat v8 runtime fix
+
+Root cause fixed:
+- emu_vblankIrq in v6/v7 executed PUSH before switching r13/sp to gCheatIrqStack.
+- In GBARunner3 vm_irq, r13 is used as a scratch register before branching to emu_vblankIrq and is not a valid IRQ/C stack at that point.
+- The premature PUSH therefore wrote register state through an invalid SP during VBlank, which can corrupt MMIO/memory while the splash screen is still displayed.
+
+v8 changes:
+1. Adds gCheatVBlankEnabled in EWRAM BSS; zero throughout boot.
+2. VBlank checks this flag and performs no cheat stack/C++ work while disabled.
+3. InitializeUi enables the hook only after cheat UI/shared state is ready.
+4. When enabled, VBlank loads gCheatIrqStack+4096 BEFORE the first PUSH.
+5. Pushes 6 registers (24 bytes) to keep the C-call stack 8-byte aligned.
+6. No need to restore the old r13: the stock GBARunner3 VBlank path immediately reuses r13, and vm_irq restores its saved state on return.
+
+This fix targets the observed splash-screen hang directly.

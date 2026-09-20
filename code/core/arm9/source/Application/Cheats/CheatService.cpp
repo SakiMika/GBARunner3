@@ -46,6 +46,12 @@ static char sCodeText[32];
 extern "C" {
 [[gnu::section(".ewram.bss"), gnu::aligned(8)]]
 u8 gCheatIrqStack[4096];
+
+// VBlank assembly checks this before it ever switches stacks or enters C++.
+// Keep it zero throughout boot; InitializeUi() enables it only after all cheat
+// state, shared IPC data and display resources are ready.
+[[gnu::section(".ewram.bss"), gnu::aligned(4)]]
+volatile u32 gCheatVBlankEnabled;
 }
 
 static const u8 sFont8x8[95][8] = {
@@ -490,6 +496,8 @@ static void uiInitFont()
 
 void CheatService::InitializeUi()
 {
+    // The assembly hook must remain inert during the entire boot/splash path.
+    gCheatVBlankEnabled = 0;
     if (!HasCheats()) return;
 
     sys_setMainEngineToTopScreen();
@@ -509,6 +517,11 @@ void CheatService::InitializeUi()
     dc_invalidateRange((void*)&gGbaSoundShared.cheatInput, sizeof(gGbaSoundShared.cheatInput));
     _touchWasDown = gGbaSoundShared.cheatInput.touchDown != 0;
     RenderClosed();
+
+    // Publish all UI/shared state before allowing the IRQ hook to call C++.
+    dc_flushRange((void*)&gGbaSoundShared, sizeof(gGbaSoundShared));
+    gCheatVBlankEnabled = 1;
+    dc_flushRange((void*)&gCheatVBlankEnabled, sizeof(gCheatVBlankEnabled));
 }
 
 void CheatService::RenderClosed()

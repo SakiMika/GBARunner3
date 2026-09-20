@@ -4,20 +4,28 @@
 #include "AsmMacros.inc"
 
 arm_func emu_vblankIrq
-    // Cheat service runs once per emulated frame. The normal IRQ stack is only
-    // ~288 bytes, so use the dedicated EWRAM stack while C++ is active, but
-    // always restore the original SP before continuing the emulator IRQ.
-    push {r0-r3,r12,lr}
 #ifndef GBAR3_TEST
-    mov r0, sp
+    // IMPORTANT: r13 is NOT a valid C/IRQ stack here. vm_irq uses r13 as a
+    // scratch register (normally 0x04000000) before branching here. The old
+    // implementation pushed registers before switching stacks, corrupting
+    // MMIO/memory and causing the runner to hang on the splash screen.
+    //
+    // Do not call into C until the cheat UI has explicitly enabled the hook.
+    ldr r12,= gCheatVBlankEnabled
+    ldr r12, [r12]
+    cmp r12, #0
+    beq 1f
+
+    // Switch to a dedicated 8-byte-aligned EWRAM stack BEFORE the first push.
+    // The original r13 value does not need restoring: the stock VBlank path
+    // immediately repurposes r13 and vm_irq restores its own state later.
     ldr sp,= gCheatIrqStack + 4096
-    push {r0}
+    push {r0-r3,r12,lr}     // 24 bytes: keeps AAPCS 8-byte stack alignment
     ldr r12,= cheat_onVBlank
     blx r12
-    pop {r0}
-    mov sp, r0
-#endif
     pop {r0-r3,r12,lr}
+1:
+#endif
     // For center and mask display capture has to be enabled every frame
     // and the buffers need to be swapped
 jumpToCaptureUpdate:
