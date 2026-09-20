@@ -11,9 +11,12 @@ arm_func emu_vblankIrq
     // MMIO/memory and causing the runner to hang on the splash screen.
     //
     // Do not call into C until the cheat UI has explicitly enabled the hook.
-    ldr r12,= gCheatVBlankEnabled
-    ldr r12, [r12]
-    cmp r12, #0
+    // r12 is a live emulated/guest register here. Do not clobber it merely
+    // to test the hook flag. vm_irq has already saved the hardware IRQ LR in
+    // DTCM, and the stock VBlank path uses lr as scratch, so lr is safe here.
+    ldr lr,= gCheatVBlankEnabled
+    ldr lr, [lr]
+    cmp lr, #0
     beq 1f
 
     // Switch to a dedicated 8-byte-aligned EWRAM stack BEFORE the first push.

@@ -78,6 +78,28 @@ dtcm_done:
     bgt 1b
 ewram_done:
 
+    // EWRAM is covered by the cached main-memory MPU region. Historically
+    // .ewram only contained data, so leaving the freshly copied image dirty in
+    // D-cache was harmless. CheatService now places executable code in .ewram.
+    // Instruction fetches do not read dirty D-cache lines, so jumping to that
+    // code before a clean can execute stale RAM and hang before gbaRunnerMain.
+    // Clean+invalidate every copied EWRAM cache line, drain the write buffer,
+    // then invalidate I-cache before any constructors/calls can enter EWRAM.
+    ldr r0, =__ewram_start
+    ldr r1, =__ewram_end
+    bic r0, r0, #0x1F
+    cmp r0, r1
+    bhs ewram_cache_done
+ewram_cache_flush_loop:
+    mcr p15, 0, r0, c7, c14, 1 // clean+invalidate D-cache line
+    add r0, r0, #32
+    cmp r0, r1
+    blo ewram_cache_flush_loop
+ewram_cache_done:
+    mov r0, #0
+    mcr p15, 0, r0, c7, c10, 4 // drain write buffer
+    mcr p15, 0, r0, c7, c5, 0  // invalidate entire I-cache
+
     // clear bss
     ldr r0,= __bss_start
     ldr r1,= __bss_end

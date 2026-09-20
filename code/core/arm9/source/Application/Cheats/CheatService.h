@@ -31,13 +31,17 @@ private:
         bool enabled;
     };
 
-    Cheat _cheats[MaxCheats] {};
-    u32 _cheatCount = 0;
-    u32 _selected = 0;
-    u32 _scroll = 0;
-    bool _menuOpen = false;
-    bool _uiInitialized = false;
-    bool _touchWasDown = false;
+    // Deliberately no C++ default member initializers here. This object lives
+    // in .ewram.bss and is cleared by crt0. Keeping it trivially initialized
+    // avoids an early .init_array constructor that would execute EWRAM code
+    // before gbaRunnerMain. LoadForRom() resets the runtime state explicitly.
+    Cheat _cheats[MaxCheats];
+    u32 _cheatCount;
+    u32 _selected;
+    u32 _scroll;
+    bool _menuOpen;
+    bool _uiInitialized;
+    bool _touchWasDown;
 
     bool TryLoadFile(const char* path);
     static bool ParseCodeLine(const char* text, CodeLine& line);
