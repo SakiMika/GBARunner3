@@ -29,7 +29,7 @@ jobs:
           make -C code 2>&1 | tee build.log
           status=${PIPESTATUS[0]}
           echo "===== BUILD ERROR SUMMARY ====="
-          grep -nE "(^|[[:space:]])(error:|fatal error:)|undefined reference|relocation truncated|region .* overflowed|will not fit in region|collect2:" build.log | tail -n 120 || true
+          grep -nE "(^|[[:space:]])(error:|fatal error:)|undefined reference|relocation truncated|region .* overflowed|will not fit in region|not within region|collect2:" build.log | tail -n 120 || true
           echo "===== END BUILD ERROR SUMMARY ====="
           exit "$status"
       - name: Upload build log
@@ -38,6 +38,13 @@ jobs:
         with:
           path: build.log
           name: build-log
+      - name: Upload ARM9 linker map
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          path: code/core/arm9/arm9.map
+          name: arm9-linker-map
+          if-no-files-found: ignore
       - name: Prepare for build publishing
         run: |
           mkdir -p out/_gba/

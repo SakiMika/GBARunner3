@@ -259,6 +259,10 @@ SECTIONS
 	{
 		__ewram_bss_start = ABSOLUTE(.);
 		__ewram_bss_start__ = ABSOLUTE(.);
+		/* Catch every zero-initialized/compiler-generated symbol from the
+		   cheat translation unit.  The explicit .ewram.bss attributes cover
+		   the large buffers, but GCC may still emit auxiliary .bss.* symbols. */
+		CheatService.o(.bss .bss.* .gnu.linkonce.b* COMMON)
 		*(.ewram.bss*)
 		. = ALIGN(4);    /* REQUIRED. LD is flaky without it. */
 	} >ewram :NONE
@@ -283,8 +287,8 @@ SECTIONS
 		__bss_start = ABSOLUTE(.);
 		__bss_start__ = ABSOLUTE(.);
 		*(.dynbss)
-		*(.gnu.linkonce.b*)
-		*(.bss*)
+		*(EXCLUDE_FILE(CheatService.o) .gnu.linkonce.b*)
+		*(EXCLUDE_FILE(CheatService.o) .bss*)
 		*(COMMON)
 		. = ALIGN(4);    /* REQUIRED. LD is flaky without it. */
 	} >vrama :NONE

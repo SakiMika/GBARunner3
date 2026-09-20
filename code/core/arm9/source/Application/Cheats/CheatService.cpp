@@ -1,5 +1,4 @@
 #include "CheatService.h"
-#include <string.h>
 #include <nds.h>
 #include <libtwl/mem/memVram.h>
 #include <libtwl/sys/sysPower.h>
@@ -133,6 +132,55 @@ static const u8 sFont8x8[95][8] = {
     {0x00, 0x00, 0x00, 0x00, 0x16, 0x1A, 0x00, 0x00}, // '~'
 };
 
+static const char* findCharLocal(const char* p, char needle)
+{
+    while (*p)
+    {
+        if (*p == needle) return p;
+        ++p;
+    }
+    return nullptr;
+}
+
+static bool textEqualsLocal(const char* a, const char* b)
+{
+    while (*a && *b)
+    {
+        if (*a != *b) return false;
+        ++a;
+        ++b;
+    }
+    return *a == *b;
+}
+
+static void copyLiteralLocal(char* dst, u32 dstSize, const char* src)
+{
+    if (!dstSize) return;
+    u32 i = 0;
+    while (src[i] && i + 1 < dstSize)
+    {
+        dst[i] = src[i];
+        ++i;
+    }
+    dst[i] = 0;
+}
+
+static const char* findLiteralLocal(const char* haystack, const char* needle)
+{
+    if (!*needle) return haystack;
+    for (const char* h = haystack; *h; ++h)
+    {
+        const char* a = h;
+        const char* b = needle;
+        while (*a && *b && *a == *b)
+        {
+            ++a;
+            ++b;
+        }
+        if (!*b) return h;
+    }
+    return nullptr;
+}
 
 static inline const char* skipWs(const char* p)
 {
@@ -297,9 +345,9 @@ bool CheatService::TryLoadFile(const char* path)
         return false;
     sCheatFileBuffer[fileSize] = 0;
 
-    const char* p = strstr(sCheatFileBuffer, "\"cheats\"");
+    const char* p = findLiteralLocal(sCheatFileBuffer, "\"cheats\"");
     if (!p) return false;
-    p = strchr(p, '[');
+    p = findCharLocal(p, '[');
     if (!p) return false;
     ++p;
 
@@ -313,7 +361,7 @@ bool CheatService::TryLoadFile(const char* path)
         ++p;
 
         Cheat cheat {};
-        strcpy(cheat.name, "Unnamed cheat");
+        copyLiteralLocal(cheat.name, MaxNameLength, "Unnamed cheat");
 
         while (*p)
         {
@@ -332,11 +380,11 @@ bool CheatService::TryLoadFile(const char* path)
             ++p;
             p = skipWs(p);
 
-            if (!strcmp(key, "name"))
+            if (textEqualsLocal(key, "name"))
             {
                 if (!parseJsonString(p, cheat.name, MaxNameLength)) return false;
             }
-            else if (!strcmp(key, "codes"))
+            else if (textEqualsLocal(key, "codes"))
             {
                 if (*p != '[') return false;
                 ++p;
