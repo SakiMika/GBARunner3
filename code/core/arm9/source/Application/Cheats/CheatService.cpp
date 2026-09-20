@@ -1,5 +1,6 @@
 #include "CheatService.h"
 #include <nds.h>
+#include <string.h>
 #include <libtwl/mem/memVram.h>
 #include <libtwl/sys/sysPower.h>
 #include "Fat/ff.h"
@@ -26,6 +27,19 @@ CheatService gCheatService;
 // Dedicated storage avoids heap pressure while a ROM is being initialized.
 [[gnu::section(".ewram.bss"), gnu::aligned(32)]]
 static char sCheatFileBuffer[CHEAT_FILE_MAX_SIZE + 1];
+
+// GBARunner3's normal ARM9 stack is only ~992 bytes. FatFs FIL contains a
+// sector-sized private buffer and a temporary Cheat is several hundred bytes,
+// so keeping either as a local variable can overflow the boot stack while the
+// splash screen is still visible. Keep all cheat-loader workspace in EWRAM.
+[[gnu::section(".ewram.bss"), gnu::aligned(32)]]
+static FIL sCheatFile;
+[[gnu::section(".ewram.bss"), gnu::aligned(4)]]
+static char sCheatPath[64];
+[[gnu::section(".ewram.bss"), gnu::aligned(4)]]
+static char sJsonKey[16];
+[[gnu::section(".ewram.bss"), gnu::aligned(4)]]
+static char sCodeText[32];
 
 // The emulator IRQ stack is deliberately tiny. Menu rendering/polling uses its
 // own stack so opening the menu cannot corrupt the VM's normal IRQ stack.
@@ -327,20 +341,22 @@ bool CheatService::ParseCodeLine(const char* text, CodeLine& line)
 
 bool CheatService::TryLoadFile(const char* path)
 {
-    FIL file {};
-    if (f_open(&file, path, FA_READ | FA_OPEN_EXISTING) != FR_OK)
+    // Never put FIL on the normal ARM9 stack: FF_FS_TINY=0 gives FIL its own
+    // sector buffer, which alone consumes more than half of that stack.
+    memset(&sCheatFile, 0, sizeof(sCheatFile));
+    if (f_open(&sCheatFile, path, FA_READ | FA_OPEN_EXISTING) != FR_OK)
         return false;
 
-    const u32 fileSize = f_size(&file);
+    const u32 fileSize = f_size(&sCheatFile);
     if (fileSize == 0 || fileSize > CHEAT_FILE_MAX_SIZE)
     {
-        f_close(&file);
+        f_close(&sCheatFile);
         return false;
     }
 
     UINT bytesRead = 0;
-    const FRESULT result = f_read(&file, sCheatFileBuffer, fileSize, &bytesRead);
-    f_close(&file);
+    const FRESULT result = f_read(&sCheatFile, sCheatFileBuffer, fileSize, &bytesRead);
+    f_close(&sCheatFile);
     if (result != FR_OK || bytesRead != fileSize)
         return false;
     sCheatFileBuffer[fileSize] = 0;
@@ -360,7 +376,11 @@ bool CheatService::TryLoadFile(const char* path)
         if (*p != '{') { ++p; continue; }
         ++p;
 
-        Cheat cheat {};
+        // Parse directly into the final EWRAM slot. This avoids a ~340-byte
+        // temporary Cheat object on the boot stack. _cheatCount is advanced
+        // only after at least one valid code line was parsed.
+        Cheat& cheat = _cheats[_cheatCount];
+        memset(&cheat, 0, sizeof(cheat));
         copyLiteralLocal(cheat.name, MaxNameLength, "Unnamed cheat");
 
         while (*p)
@@ -369,8 +389,7 @@ bool CheatService::TryLoadFile(const char* path)
             if (*p == '}') { ++p; break; }
             if (*p == ',') { ++p; continue; }
 
-            char key[16];
-            if (!parseJsonString(p, key, sizeof(key)))
+            if (!parseJsonString(p, sJsonKey, sizeof(sJsonKey)))
             {
                 ++p;
                 continue;
@@ -380,11 +399,11 @@ bool CheatService::TryLoadFile(const char* path)
             ++p;
             p = skipWs(p);
 
-            if (textEqualsLocal(key, "name"))
+            if (textEqualsLocal(sJsonKey, "name"))
             {
                 if (!parseJsonString(p, cheat.name, MaxNameLength)) return false;
             }
-            else if (textEqualsLocal(key, "codes"))
+            else if (textEqualsLocal(sJsonKey, "codes"))
             {
                 if (*p != '[') return false;
                 ++p;
@@ -393,13 +412,13 @@ bool CheatService::TryLoadFile(const char* path)
                     p = skipWs(p);
                     if (*p == ']') { ++p; break; }
                     if (*p == ',') { ++p; continue; }
-                    char codeText[32];
-                    if (!parseJsonString(p, codeText, sizeof(codeText))) return false;
+                    if (!parseJsonString(p, sCodeText, sizeof(sCodeText))) return false;
                     if (cheat.lineCount < MaxCodeLines)
                     {
-                        CodeLine line {};
-                        if (ParseCodeLine(codeText, line))
-                            cheat.lines[cheat.lineCount++] = line;
+                        CodeLine& line = cheat.lines[cheat.lineCount];
+                        memset(&line, 0, sizeof(line));
+                        if (ParseCodeLine(sCodeText, line))
+                            ++cheat.lineCount;
                     }
                 }
             }
@@ -410,7 +429,7 @@ bool CheatService::TryLoadFile(const char* path)
         }
 
         if (cheat.lineCount)
-            _cheats[_cheatCount++] = cheat;
+            ++_cheatCount;
     }
 
     if (_cheatCount)
@@ -421,11 +440,10 @@ bool CheatService::TryLoadFile(const char* path)
 bool CheatService::LoadForRom(const GbaHeader& header)
 {
     _cheatCount = 0;
-    char path[64];
-    buildVersionPath(path, header);
-    if (TryLoadFile(path)) return true;
-    buildMakerPath(path, header);
-    return TryLoadFile(path);
+    buildVersionPath(sCheatPath, header);
+    if (TryLoadFile(sCheatPath)) return true;
+    buildMakerPath(sCheatPath, header);
+    return TryLoadFile(sCheatPath);
 }
 
 static void uiClear()
@@ -485,6 +503,11 @@ void CheatService::InitializeUi()
     REG_BG0CNT_SUB = (8u << 8);
     uiInitFont();
     _uiInitialized = true;
+
+    // Do not interpret a pen that was already down during startup as a fresh
+    // press of the cheat button on the first emulated VBlank.
+    dc_invalidateRange((void*)&gGbaSoundShared.cheatInput, sizeof(gGbaSoundShared.cheatInput));
+    _touchWasDown = gGbaSoundShared.cheatInput.touchDown != 0;
     RenderClosed();
 }
 
