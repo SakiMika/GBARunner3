@@ -1,0 +1,17 @@
+GBARunner3 cheat v6 build fix
+==============================
+
+Fixes ARM7 compile error with modern libnds:
+  error: invalid conversion from touchPosition* to uint32
+  touchRead(&touch)
+
+Cause:
+- On ARM7, touchRead(uint32) is the low-level ADC command reader.
+- High-level calibrated touchscreen API is touchInit()/touchPenDown()/touchReadXY(touchPosition*).
+
+Changes:
+- initializeArm7(): call touchInit() after readUserSettings().
+- updateCheatTouchState(): use touchPenDown() instead of direct REG_KEYXY bit test.
+- updateCheatTouchState(): use touchReadXY(&touch) instead of touchRead(&touch).
+
+All v5 VRAM/BSS fixes are retained unchanged.

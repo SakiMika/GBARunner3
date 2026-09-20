@@ -105,6 +105,7 @@ static void initializeArm7()
     sys_setSoundPower(true);
 
     readUserSettings();
+    touchInit();
     pmic_setPowerLedBlink(PMIC_CONTROL_POWER_LED_BLINK_NONE);
 
     sio_setGpioSiIrq(false);
@@ -139,11 +140,11 @@ static void updateCheatTouchState()
     if (!gSoundSharedData)
         return;
 
-    const bool touchDown = (REG_KEYXY & (1 << 6)) == 0;
+    const bool touchDown = touchPenDown();
     if (touchDown)
     {
         touchPosition touch {};
-        touchRead(&touch);
+        touchReadXY(&touch);
         gSoundSharedData->cheatInput.touchX = touch.px;
         gSoundSharedData->cheatInput.touchY = touch.py;
     }
