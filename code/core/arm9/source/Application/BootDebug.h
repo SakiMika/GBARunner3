@@ -7,6 +7,7 @@
 void BootDebug_Init();
 void BootDebug_Stage(u32 stage);
 void BootDebug_RestoreVideo();
+void BootDebug_PrepareClosedButton();
 void BootDebug_EnableBottomBacklight();
 void BootDebug_ShowCheatButton();
 void BootDebug_Hide();

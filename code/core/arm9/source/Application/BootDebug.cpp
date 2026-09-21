@@ -14,14 +14,26 @@
 // Earlier cheat builds remapped H to Sub BG, which made the VM start from an
 // inaccessible/corrupted BIOS and left the GBA screen white.
 //
-// Cheat mode disables center-and-mask capture, so VRAM C is free for the lower
-// LCD UI. VRAM C MST=4 maps the bank to Sub BG at 0x06200000.
+// Normal gameplay keeps center-and-mask capture enabled. VRAM C is therefore
+// only remapped to Sub BG while the game is paused inside the cheat menu.
+// Closed gameplay uses a 16-line direct-VRAM strip instead (see below).
 #define UI_REG_VRAM_C_CR          (*(volatile u8*)0x04000242)
 #define UI_REG_VRAM_H_CR          (*(volatile u8*)0x04000248)
 #define UI_REG_VRAM_I_CR          (*(volatile u8*)0x04000249)
 #define UI_REG_DISPCNT_SUB        (*(volatile u32*)0x04001000)
 #define UI_REG_BG0CNT_SUB         (*(volatile u16*)0x04001008)
 #define UI_REG_MASTER_BRIGHT_SUB  (*(volatile u16*)0x0400106C)
+
+// When center-and-mask is active the main 2D engine is physically on the
+// lower LCD and is blacked out.  During the final 16 scanlines we briefly
+// switch that engine to VRAM-display mode and show this small framebuffer
+// strip from VRAM C.  The visible GBA image on the top LCD only consumes
+// captured source lines 0..159, so rows 176..191 are safe scratch space.
+#define UI_VRAM_C_LCDC            ((volatile u16*)0x06840000)
+#define UI_CLOSED_Y0              176u
+#define UI_CLOSED_Y1              192u
+#define UI_CLOSED_TEXT_X          198u
+#define UI_CLOSED_TEXT_Y          180u
 
 static const u8 sFont8x8[95][8] = {
     {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}, // ' '
@@ -164,6 +176,49 @@ static void initFont()
     }
 }
 
+static void drawClosedButtonFramebuffer()
+{
+    // Bit 15 is set so the same pixels are also valid as direct-color data if
+    // a future display path samples this strip through a bitmap BG.
+    const u16 black = 0x8000;
+    const u16 white = 0xFFFF;
+
+    for (u32 y = UI_CLOSED_Y0; y < UI_CLOSED_Y1; ++y)
+    {
+        volatile u16* row = UI_VRAM_C_LCDC + y * 256;
+        for (u32 x = 0; x < 256; ++x)
+            row[x] = black;
+    }
+
+    static const char text[] = "[CHEAT]";
+    u32 px = UI_CLOSED_TEXT_X;
+    for (u32 i = 0; text[i]; ++i, px += 8)
+    {
+        u8 c = static_cast<u8>(text[i]);
+        if (c < 32 || c > 126) c = '?';
+        const u8* glyph = sFont8x8[c - 32];
+        for (u32 gy = 0; gy < 8; ++gy)
+        {
+            const u8 bits = glyph[gy];
+            volatile u16* row = UI_VRAM_C_LCDC + (UI_CLOSED_TEXT_Y + gy) * 256;
+            for (u32 gx = 0; gx < 8; ++gx)
+            {
+                if ((bits >> gx) & 1)
+                    row[px + gx] = white;
+            }
+        }
+    }
+}
+
+void BootDebug_PrepareClosedButton()
+{
+    // CPU-visible/LCDC mapping is required for direct writes to 0x06840000.
+    // The stock VBlank capture code will restore C/D's capture/display
+    // mappings before the next visible GBA frame.
+    UI_REG_VRAM_C_CR = 0x80;
+    drawClosedButtonFramebuffer();
+}
+
 void BootDebug_RestoreVideo()
 {
     // Preserve GBARunner3's .vramhi.bss backing before touching the UI bank.
@@ -186,8 +241,10 @@ void BootDebug_Stage(u32) { }
 
 void BootDebug_EnableBottomBacklight()
 {
+    // Do not touch SUB master brightness here: in centered gameplay the sub
+    // engine is the visible top-screen GBA image and its brightness comes from
+    // the user's display setting. Menu setup sets its own brightness separately.
     sysipc_setBottomBacklight(true);
-    UI_REG_MASTER_BRIGHT_SUB = 0;
 }
 
 void BootDebug_ShowCheatButton()

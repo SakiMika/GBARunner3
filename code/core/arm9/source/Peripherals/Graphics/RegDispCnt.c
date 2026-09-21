@@ -6,6 +6,9 @@
 #include "MemoryEmulator/MemoryLoadStore.h"
 #include "GbaIoRegOffsets.h"
 
+extern volatile u32 gCheatOverlayActive;
+extern volatile u32 gCheatPendingDispCnt;
+
 static void setVramLoad012(void)
 {
     memu_setLoad8Handler(6, memu_load8Vram012);
@@ -140,5 +143,11 @@ void emu_regDispCntStore(u16 newValue)
         displayModeChange(oldMode, newMode);
     }
 
-    REG_DISPCNT = dsDispCnt;
+    // During the final lower-LCD scanlines the cheat button temporarily puts
+    // the main engine in VRAM-display mode. Preserve any GBA DISPCNT writes
+    // that happen during that short window and publish the newest state when
+    // VBlank restores normal rendering.
+    gCheatPendingDispCnt = dsDispCnt;
+    if (!gCheatOverlayActive)
+        REG_DISPCNT = dsDispCnt;
 }

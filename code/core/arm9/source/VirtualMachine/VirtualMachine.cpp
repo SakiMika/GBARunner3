@@ -1,10 +1,12 @@
 #include "common.h"
 #include <libtwl/rtos/rtosIrq.h>
+#include <libtwl/gfx/gfxStatus.h>
 #include <string.h>
 #include "VMDtcm.h"
 #include "VirtualMachine.h"
 
 extern "C" u32 vm_run(void* startAddress, const context_t* context, context_t* storeContext);
+extern "C" volatile u32 gCheatVBlankEnabled;
 
 u32 VirtualMachine::Run(const context_t* context)
 {
@@ -25,5 +27,14 @@ u32 VirtualMachine::Run(const context_t* context)
     vm_hwIrqMask = 0;
     vm_emulatedIfImeIe = 0;
     vm_forcedIrqMask = RTOS_IRQ_GX_FIFO | RTOS_IRQ_VBLANK;
+    if (gCheatVBlankEnabled)
+    {
+        // Keep a hardware HBlank source alive for the 16-line lower-screen
+        // cheat button overlay. vm_hwIrqMask still decides whether HBlank is
+        // exposed to the emulated GBA, so this does not create fake GBA IRQs.
+        vm_forcedIrqMask |= 1 << 1;
+        REG_IE |= 1 << 1;
+        gfx_setHBlankIrqEnabled(true);
+    }
     return vm_run(_startAddress, context, &_storeContext);
 }

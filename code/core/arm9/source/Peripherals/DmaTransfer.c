@@ -13,6 +13,8 @@
 #include "MemoryEmulator/RomDefs.h"
 #include "DmaTransfer.h"
 
+extern volatile u32 gCheatVBlankEnabled;
+
 DTCM_DATA dma_state_t dma_state;
 
 void dma_immTransfer16(u32 src, u32 dst, u32 byteCount, int srcStep, int dstStep);
@@ -50,9 +52,13 @@ static inline void updateHBlankIrqForChannelStop(void)
     if (!(dma_state.dmaFlags & DMA_FLAG_HBLANK_MASK))
     {
         emu_hblankDmaSkipInstruction = hblankDmaSkipInstruction;
-        vm_forcedIrqMask &= ~(1 << 1);
+        if (!gCheatVBlankEnabled)
+            vm_forcedIrqMask &= ~(1 << 1);
+        else
+            vm_forcedIrqMask |= 1 << 1;
+
         u32 gbaDispStat = *(u16*)&emu_ioRegisters[4];
-        if (!(gbaDispStat & (1 << 4)))
+        if (!(gbaDispStat & (1 << 4)) && !gCheatVBlankEnabled)
         {
             gfx_setHBlankIrqEnabled(false);
         }

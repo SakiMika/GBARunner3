@@ -6,12 +6,14 @@
 #include "SystemIpc.h"
 #include "cp15.h"
 #include "Application/BootDebug.h"
+#include "Application/GbaDisplayConfigurationService.h"
+#include "Application/Settings/AppSettingsService.h"
 
 #pragma GCC optimize("Os")
 
 #define CHEAT_VISIBLE_ROWS        18
-#define CHEAT_BUTTON_X0           192
-#define CHEAT_BUTTON_Y0           160
+#define CHEAT_BUTTON_X0           184
+#define CHEAT_BUTTON_Y0           172
 #define CHEAT_BUTTON_ROW          22
 #define CHEAT_BUTTON_COL          25
 #define SUB_BG_TILE_BASE          ((volatile u8*)0x06200000)
@@ -20,6 +22,9 @@
 
 extern "C" {
 extern volatile u32 gCheatVBlankEnabled;
+extern volatile u32 gCheatOverlayEnabled;
+extern volatile u32 gCheatOverlayActive;
+extern volatile u32 gCheatPendingDispCnt;
 }
 
 static void uiClear()
@@ -44,37 +49,40 @@ static void uiPrint(u32 x, u32 y, const char* text, u32 maxChars = 32)
 
 void CheatService::InitializeUi()
 {
-    // The assembly hook must remain inert during the entire boot/splash path.
+    // The assembly hooks remain inert throughout boot and are enabled only
+    // after the shared touch state and the closed-button framebuffer exist.
     gCheatVBlankEnabled = 0;
+    gCheatOverlayEnabled = 0;
+    gCheatOverlayActive = 0;
     if (!HasCheats())
-    {
         return;
-    }
 
-    // Reserve VRAM C for the lower touch UI. VRAM H/I must stay in LCDC mode
-    // because GBARunner3 stores the GBA BIOS and ROM-cache lookup table there.
-    BootDebug_RestoreVideo();
-    BootDebug_EnableBottomBacklight();
     _uiInitialized = true;
 
-    // Do not interpret a pen that was already down during startup as a fresh
-    // press of the cheat button on the first emulated VBlank.
+    // Center-and-mask keeps the GBA image at the stock 240x160 centered
+    // position on the top LCD.  The lower LCD stays black except for a small
+    // 16-scanline framebuffer strip shown by the HBlank overlay.
+    BootDebug_PrepareClosedButton();
+    BootDebug_EnableBottomBacklight();
+
     dc_invalidateRange((void*)&gGbaSoundShared.cheatInput, sizeof(gGbaSoundShared.cheatInput));
     _touchWasDown = gGbaSoundShared.cheatInput.touchDown != 0;
+    _hotkeyWasDown = false;
 
-    BootDebug_ShowCheatButton();
-
-    // Publish all UI/shared state before allowing the IRQ hook to call C++.
+    gCheatPendingDispCnt = REG_DISPCNT;
     dc_flushRange((void*)&gGbaSoundShared, sizeof(gGbaSoundShared));
+    dc_flushRange((void*)&gCheatPendingDispCnt, sizeof(gCheatPendingDispCnt));
+
+    gCheatOverlayEnabled = 1;
     gCheatVBlankEnabled = 1;
+    dc_flushRange((void*)&gCheatOverlayEnabled, sizeof(gCheatOverlayEnabled));
     dc_flushRange((void*)&gCheatVBlankEnabled, sizeof(gCheatVBlankEnabled));
 }
 
 void CheatService::RenderClosed()
 {
     if (!_uiInitialized) return;
-    uiClear();
-    uiPrint(CHEAT_BUTTON_COL, CHEAT_BUTTON_ROW, "[CHEAT]", 7);
+    BootDebug_PrepareClosedButton();
 }
 
 void CheatService::RenderMenu()
@@ -82,7 +90,7 @@ void CheatService::RenderMenu()
     if (!_uiInitialized) return;
     uiClear();
     uiPrint(0, 0, "CHEATS   A: TOGGLE   D-PAD: MOVE");
-    uiPrint(0, 1, "TAP [CHEAT] AGAIN TO RESUME");
+    uiPrint(0, 1, "B/TAP [CHEAT] TO RESUME");
 
     if (_selected < _scroll) _scroll = _selected;
     if (_selected >= _scroll + CHEAT_VISIBLE_ROWS)
@@ -136,7 +144,22 @@ static void waitNextFramePolling()
 void CheatService::RunMenuLoop()
 {
     _menuOpen = true;
+    gCheatOverlayEnabled = 0;
+    gCheatOverlayActive = 0;
+    dc_flushRange((void*)&gCheatOverlayEnabled, sizeof(gCheatOverlayEnabled));
+    dc_flushRange((void*)&gCheatOverlayActive, sizeof(gCheatOverlayActive));
+
     SetPaused(true);
+
+    // While the VM is paused, move the raw main engine to the top LCD and use
+    // the sub engine/VRAM C for the full cheat list on the touch screen.
+    // Normal centered capture is restored before the VM resumes.
+    sys_setMainEngineToTopScreen();
+    sysipc_setTopBacklight(true);
+    sysipc_setBottomBacklight(true);
+    REG_MASTER_BRIGHT = 0;
+    BootDebug_RestoreVideo();
+    BootDebug_EnableBottomBacklight();
     RenderMenu();
 
     u16 previousKeys = readKeysHeld();
@@ -174,7 +197,10 @@ void CheatService::RunMenuLoop()
             _cheats[_selected].enabled = !_cheats[_selected].enabled;
             redraw = true;
         }
-        if (ReadCheatButtonPressed())
+        const u16 closeHotkey = KEY_L | KEY_R | KEY_SELECT;
+        const bool closeHotkeyPressed =
+            ((keys & closeHotkey) == closeHotkey) && ((down & closeHotkey) != 0);
+        if ((down & KEY_B) || ReadCheatButtonPressed() || closeHotkeyPressed)
         {
             _menuOpen = false;
             break;
@@ -185,8 +211,26 @@ void CheatService::RunMenuLoop()
     while (readKeysHeld() != 0)
         waitNextFramePolling();
 
-    SetPaused(false);
+    BootDebug_Hide();
+
+    // Restore the exact normal GBARunner3 display path: centered 240x160 game
+    // on the top LCD, hidden/raw main engine on the lower LCD.  Then re-create
+    // the closed button strip and light the lower LCD back up.
+    auto displaySettings = gAppSettingsService.GetAppSettings().displaySettings;
+    displaySettings.gbaScreen = GbaScreen::Top;
+    displaySettings.enableCenterAndMask = true;
+    gGbaDisplayConfigurationService.ApplyDisplaySettings(displaySettings);
     RenderClosed();
+    BootDebug_EnableBottomBacklight();
+
+    gCheatPendingDispCnt = REG_DISPCNT;
+    gCheatOverlayActive = 0;
+    gCheatOverlayEnabled = 1;
+    dc_flushRange((void*)&gCheatPendingDispCnt, sizeof(gCheatPendingDispCnt));
+    dc_flushRange((void*)&gCheatOverlayActive, sizeof(gCheatOverlayActive));
+    dc_flushRange((void*)&gCheatOverlayEnabled, sizeof(gCheatOverlayEnabled));
+
+    SetPaused(false);
 }
 
 // Reuse the existing 32-bit C bridge instead of adding 8/16-bit wrappers to
@@ -316,7 +360,16 @@ void CheatService::OnVBlank()
 
     ApplyEnabledCheats();
 
-    if (ReadCheatButtonPressed())
+    // Touch is the primary control. L+R+SELECT is a hardware fallback so the
+    // menu remains reachable even if a particular touch-panel calibration or
+    // ARM7 touch path misbehaves.
+    const u16 keys = readKeysHeld();
+    const u16 hotkey = KEY_L | KEY_R | KEY_SELECT;
+    const bool hotkeyDown = (keys & hotkey) == hotkey;
+    const bool hotkeyPressed = hotkeyDown && !_hotkeyWasDown;
+    _hotkeyWasDown = hotkeyDown;
+
+    if (ReadCheatButtonPressed() || hotkeyPressed)
         RunMenuLoop();
 }
 

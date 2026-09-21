@@ -4,6 +4,28 @@
 #include "AsmMacros.inc"
 
 arm_func emu_vblankIrq
+#ifndef GBAR3_TEST
+    // If HBlank exposed the lower-screen cheat strip, restore the latest GBA
+    // display state before the stock capture swap runs.  GBA DISPCNT writes
+    // made while the strip was visible are accumulated in gCheatPendingDispCnt.
+    ldr lr,= gCheatOverlayActive
+    ldr lr, [lr]
+    cmp lr, #0
+    beq cheat_vblankOverlayRestored
+
+    ldr r13,= gCheatPendingDispCnt
+    ldr lr, [r13]
+    mov r13, #0x04000000
+    str lr, [r13]               // REG_DISPCNT
+    ldr lr,= 0x00008010
+    strh lr, [r13, #0x6C]       // hide raw main engine on lower LCD
+
+    ldr lr,= gCheatOverlayActive
+    mov r13, #0
+    str r13, [lr]
+cheat_vblankOverlayRestored:
+#endif
+
     // For center and mask display capture has to be enabled every frame
     // and the buffers need to be swapped
 jumpToCaptureUpdate:

@@ -42,6 +42,7 @@ private:
     bool _menuOpen;
     bool _uiInitialized;
     bool _touchWasDown;
+    bool _hotkeyWasDown;
 
     bool TryLoadFile(const char* path);
     static bool ParseCodeLine(const char* text, CodeLine& line);

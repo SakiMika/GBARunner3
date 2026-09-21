@@ -52,6 +52,16 @@ u8 gCheatIrqStack[4096];
 // state, shared IPC data and display resources are ready.
 [[gnu::section(".ewram.bss"), gnu::aligned(4)]]
 volatile u32 gCheatVBlankEnabled;
+
+// Closed-button scanline overlay state. The HBlank/VBlank assembly only
+// touches these simple words; no C/C++ call is made from the timing-critical
+// path.
+[[gnu::section(".ewram.bss"), gnu::aligned(4)]]
+volatile u32 gCheatOverlayEnabled;
+[[gnu::section(".ewram.bss"), gnu::aligned(4)]]
+volatile u32 gCheatOverlayActive;
+[[gnu::section(".ewram.bss"), gnu::aligned(4)]]
+volatile u32 gCheatPendingDispCnt;
 }
 
 
@@ -351,12 +361,16 @@ bool CheatService::LoadForRom(const GbaHeader& header)
     // gCheatService is intentionally a trivial .ewram.bss object. Reset every
     // runtime field here rather than relying on a global C++ constructor.
     gCheatVBlankEnabled = 0;
+    gCheatOverlayEnabled = 0;
+    gCheatOverlayActive = 0;
+    gCheatPendingDispCnt = 0;
     _cheatCount = 0;
     _selected = 0;
     _scroll = 0;
     _menuOpen = false;
     _uiInitialized = false;
     _touchWasDown = false;
+    _hotkeyWasDown = false;
     memset(_cheats, 0, sizeof(_cheats));
 
     buildVersionPath(sCheatPath, header);

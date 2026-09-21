@@ -505,10 +505,11 @@ extern "C" void gbaRunnerMain(int argc, char* argv[])
     auto displaySettings = gAppSettingsService.GetAppSettings().displaySettings;
     if (gCheatService.HasCheats())
     {
-        // Reserve the physical lower LCD for the persistent touch cheat UI.
-        // Center/mask capture uses both engines, so disable it while this UI is present.
+        // The cheat button lives in the otherwise-unused lower 16 scanlines of
+        // the hidden/raw GBA engine. Keep GBARunner3's normal capture path so
+        // the game remains centered at 240x160 on the top LCD.
         displaySettings.gbaScreen = GbaScreen::Top;
-        displaySettings.enableCenterAndMask = false;
+        displaySettings.enableCenterAndMask = true;
     }
     gGbaDisplayConfigurationService.ApplyDisplaySettings(displaySettings);
     if (displaySettings.enableCenterAndMask)
