@@ -92,11 +92,18 @@ static const char sBootDebugStages[][32] = {
     "62 PATH MAKER OK",
     "63 SECOND FILE ENTER",
     "64 SECOND FILE RETURN",
-    "65 CHEAT FUNC RETURN"
+    "65 CHEAT FUNC RETURN",
+    "66 UI EWRAM ENTER",
+    "67 UI NO CHEATS",
+    "68 UI HAS CHEATS",
+    "69 UI VIDEO OK",
+    "70 UI TOUCH OK",
+    "71 UI BUTTON OK",
+    "72 UI IRQ ENABLED"
 };
 
 [[gnu::section(".ewram"), gnu::aligned(4)]]
-static const char sBootDebugHeader[] = "GBARUNNER3 V13 BOOT DEBUG";
+static const char sBootDebugHeader[] = "GBARUNNER3 V14 BOOT DEBUG";
 [[gnu::section(".ewram"), gnu::aligned(4)]]
 static const char sBootDebugCheat[] = "[CHEAT]";
 

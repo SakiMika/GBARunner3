@@ -13,6 +13,12 @@ extern "C" void setupMemoryProtection()
     // mpu region 1: Cached Main Memory
     MemoryProtectionRegionBuilder(0x02000000, MPU_REGION_SIZE_4MB)
         .WithDataAccessPermission(MPU_ACCESS_PERMISSION_PRIV_READ_WRITE)
+        // CheatRuntime is linked at 0x02040000 in this region.  Region 1 used
+        // to be data-only, so the first call into EWRAM caused a prefetch
+        // abort and the boot log stopped at "44 CHEAT UI >".  Permit only
+        // privileged instruction fetches here; the higher-priority GBA EWRAM
+        // and ROM regions keep their existing, more specific permissions.
+        .WithInstructionAccessPermission(MPU_ACCESS_PERMISSION_PRIV_READ_WRITE)
         .WithDataCache()
         .ApplyToRegion(MPU_REGION_1);
 

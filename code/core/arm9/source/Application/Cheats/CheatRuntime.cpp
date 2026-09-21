@@ -44,29 +44,41 @@ static void uiPrint(u32 x, u32 y, const char* text, u32 maxChars = 32)
 
 void CheatService::InitializeUi()
 {
+    // This is the first checkpoint executed from CheatRuntime.o in EWRAM.
+    // If 66 is visible, MPU execution permission and the long call are good.
+    BootDebug_Stage(66);
+
     // The assembly hook must remain inert during the entire boot/splash path.
     gCheatVBlankEnabled = 0;
-    if (!HasCheats()) return;
+    if (!HasCheats())
+    {
+        BootDebug_Stage(67);
+        return;
+    }
+    BootDebug_Stage(68);
 
-    sys_setMainEngineToTopScreen();
-    sysipc_setTopBacklight(true);
-    sysipc_setBottomBacklight(true);
-
-    // Keep the boot diagnostic log visible after a successful boot.  The
-    // first press of [CHEAT] will clear it and replace it with the cheat menu.
+    // ApplyDisplaySettings() already selected the top LCD for GBA output, and
+    // BootDebug_EnableBottomBacklight() already re-enabled the lower LCD.
+    // Do not send redundant synchronous ARM7 IPC commands here; after gbas_init
+    // they are unnecessary and would add another possible boot-time wait.
     BootDebug_RestoreVideo();
+    BootDebug_Stage(69);
     _uiInitialized = true;
 
     // Do not interpret a pen that was already down during startup as a fresh
     // press of the cheat button on the first emulated VBlank.
     dc_invalidateRange((void*)&gGbaSoundShared.cheatInput, sizeof(gGbaSoundShared.cheatInput));
     _touchWasDown = gGbaSoundShared.cheatInput.touchDown != 0;
+    BootDebug_Stage(70);
+
     BootDebug_ShowCheatButton();
+    BootDebug_Stage(71);
 
     // Publish all UI/shared state before allowing the IRQ hook to call C++.
     dc_flushRange((void*)&gGbaSoundShared, sizeof(gGbaSoundShared));
     gCheatVBlankEnabled = 1;
     dc_flushRange((void*)&gCheatVBlankEnabled, sizeof(gCheatVBlankEnabled));
+    BootDebug_Stage(72);
 }
 
 void CheatService::RenderClosed()
