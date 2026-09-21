@@ -321,12 +321,36 @@ void CheatService::ApplyEnabledCheats()
             ApplyCodeBreakerCheat(_cheats[i]);
 }
 
+[[gnu::section(".ewram.bss"), gnu::aligned(4)]]
+static volatile u32 sCheatVBlankDebugState;
+
 void CheatService::OnVBlank()
 {
     if (!HasCheats()) return;
+
+    // Log only the first successful pass so the debug overlay is not flooded
+    // at 60 Hz.  These checkpoints distinguish an EWRAM-call/stack fault from
+    // the cheat executor or ARM7 touch shared-memory path.
+    const bool firstPass = (sCheatVBlankDebugState == 0);
+    if (firstPass)
+        BootDebug_Stage(73);
+
     ApplyEnabledCheats();
-    if (ReadCheatButtonPressed())
+    if (firstPass)
+        BootDebug_Stage(74);
+
+    if (firstPass)
+        BootDebug_Stage(75);
+    const bool openMenu = ReadCheatButtonPressed();
+    if (firstPass)
     {
+        BootDebug_Stage(76);
+        sCheatVBlankDebugState = 1;
+    }
+
+    if (openMenu)
+    {
+        BootDebug_Stage(77);
         BootDebug_Hide();
         RunMenuLoop();
     }

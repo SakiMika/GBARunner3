@@ -4,31 +4,6 @@
 #include "AsmMacros.inc"
 
 arm_func emu_vblankIrq
-#ifndef GBAR3_TEST
-    // IMPORTANT: r13 is NOT a valid C/IRQ stack here. vm_irq uses r13 as a
-    // scratch register (normally 0x04000000) before branching here. The old
-    // implementation pushed registers before switching stacks, corrupting
-    // MMIO/memory and causing the runner to hang on the splash screen.
-    //
-    // Do not call into C until the cheat UI has explicitly enabled the hook.
-    // r12 is a live emulated/guest register here. Do not clobber it merely
-    // to test the hook flag. vm_irq has already saved the hardware IRQ LR in
-    // DTCM, and the stock VBlank path uses lr as scratch, so lr is safe here.
-    ldr lr,= gCheatVBlankEnabled
-    ldr lr, [lr]
-    cmp lr, #0
-    beq 1f
-
-    // Switch to a dedicated 8-byte-aligned EWRAM stack BEFORE the first push.
-    // The original r13 value does not need restoring: the stock VBlank path
-    // immediately repurposes r13 and vm_irq restores its own state later.
-    ldr sp,= gCheatIrqStack + 4096
-    push {r0-r3,r12,lr}     // 24 bytes: keeps AAPCS 8-byte stack alignment
-    ldr r12,= cheat_onVBlank
-    blx r12
-    pop {r0-r3,r12,lr}
-1:
-#endif
     // For center and mask display capture has to be enabled every frame
     // and the buffers need to be swapped
 jumpToCaptureUpdate:
@@ -63,18 +38,43 @@ emu_vblankDmaJumpInstruction:
     // This is replaced by a nop when save needs to be checked
 .global emu_vblankIrqSkipSaveCheckInstruction
 emu_vblankIrqSkipSaveCheckInstruction:
-    b emu_vblankIrqReturn
+    b cheat_vblankTail
 #ifndef GBAR3_TEST
     ldr r13,= gGbaSaveShared
     mcr p15, 0, r13, c7, c6, 1 // invalidate range
     ldrb lr, [r13]
     cmp lr, #3 // GBA_SAVE_STATE_WRITE
-    bne emu_vblankIrqReturn
+    bne cheat_vblankTail
 
     ldr sp,= dtcmIrqStackEnd
     push {r0-r3,r12}
     bl sav_writeSaveToFile
     pop {r0-r3,r12}
+    b cheat_vblankTail
+#endif
+
+
+#ifndef GBAR3_TEST
+// Cheat work runs only after the stock VBlank capture/DMA/save path has
+// completed.  At this point r13 is disposable: vm_irq reloads it immediately
+// at emu_vblankIrqReturn.  This avoids perturbing the timing/state expected by
+// the stock VBlank prologue before display capture and save handling.
+cheat_vblankTail:
+    ldr lr,= gCheatVBlankEnabled
+    ldr lr, [lr]
+    cmp lr, #0
+    beq emu_vblankIrqReturn
+
+    // r13 from the VM is not a C stack. Switch first, then preserve every
+    // caller-clobbered guest register that the C ABI may change.
+    ldr sp,= gCheatIrqStack + 4096
+    push {r0-r3,r12,lr}
+    ldr r12,= cheat_onVBlank
+    blx r12
+    pop {r0-r3,r12,lr}
+    b emu_vblankIrqReturn
+#else
+cheat_vblankTail:
     b emu_vblankIrqReturn
 #endif
 

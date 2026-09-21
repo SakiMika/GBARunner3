@@ -99,11 +99,16 @@ static const char sBootDebugStages[][32] = {
     "69 UI VIDEO OK",
     "70 UI TOUCH OK",
     "71 UI BUTTON OK",
-    "72 UI IRQ ENABLED"
+    "72 UI IRQ ENABLED",
+    "73 VBLANK C ENTER",
+    "74 VBLANK CHEATS OK",
+    "75 VBLANK TOUCH >",
+    "76 VBLANK RETURN OK",
+    "77 CHEAT MENU OPEN"
 };
 
 [[gnu::section(".ewram"), gnu::aligned(4)]]
-static const char sBootDebugHeader[] = "GBARUNNER3 V14 BOOT DEBUG";
+static const char sBootDebugHeader[] = "GBARUNNER3 V15 VBLANK DEBUG";
 [[gnu::section(".ewram"), gnu::aligned(4)]]
 static const char sBootDebugCheat[] = "[CHEAT]";
 
