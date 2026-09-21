@@ -40,7 +40,6 @@
 #include "Application/GbaBorderService.h"
 #include "Application/SplashScreen.h"
 #include "Application/Cheats/CheatService.h"
-#include "Application/BootDebug.h"
 #include "Patches/PatchSwi.h"
 #include "Patches/SelfModifyingPatches.h"
 #include "Emulator/BootAnimationSkip.h"
@@ -439,13 +438,8 @@ extern "C" void gbaRunnerMain(int argc, char* argv[])
     REG_DISPCNT_SUB = 0x10000;
     GFX_PLTT_BG_SUB[0] = 0;
 
-    BootDebug_Init();
-    BootDebug_Stage(1);
-    BootDebug_Stage(2);
     sSplashScreen = new SplashScreen();
-    BootDebug_Stage(3);
     sSplashScreen->Initialize();
-    BootDebug_Stage(4);
 
     mem_setVramBMapping(MEM_VRAM_AB_MAIN_BG_40000);
     mem_setVramCMapping(MEM_VRAM_C_LCDC);
@@ -455,26 +449,18 @@ extern "C" void gbaRunnerMain(int argc, char* argv[])
     // mem_setVramFMapping(MEM_VRAM_FG_MAIN_OBJ_00000);
     // mem_setVramGMapping(MEM_VRAM_FG_MAIN_OBJ_04000);
     mem_setNtrWramMapping(MEM_NTR_WRAM_ARM9, MEM_NTR_WRAM_ARM9);
-    mem_setVramHMapping(MEM_VRAM_H_SUB_BG_00000); // boot debug / cheat UI
+    mem_setVramHMapping(MEM_VRAM_H_LCDC);
     mem_setVramIMapping(MEM_VRAM_I_LCDC);
     sys_set3DGeometryEnginePower(true); // enable geometry engine to generate gx fifo irq
     REG_GXSTAT = 0; // gx fifo irqs must be off
 
-    BootDebug_Stage(5);
     Environment::Initialize();
-    BootDebug_Stage(6);
     setupLogger();
-    BootDebug_Stage(7);
-    BootDebug_EnableBottomBacklight();
-    BootDebug_Stage(8);
 
     mem_setMainMemoryPriority(EXMEMCNT_MAIN_MEM_PRIO_ARM7);
 
-    BootDebug_Stage(9);
     startSplashScreenAnimation();
-    BootDebug_Stage(10);
 
-    BootDebug_Stage(11);
     bool mountResult;
     if (shouldMountDsiSd(argc, argv))
         mountResult = mountDsiSd();
@@ -483,30 +469,21 @@ extern "C" void gbaRunnerMain(int argc, char* argv[])
 
     if (!mountResult)
     {
-        BootDebug_Stage(52);
         GFX_PLTT_BG_MAIN[0] = 0x1F << 10;
         while (1);
     }
-    BootDebug_Stage(12);
 
     // if (Environment::SupportsAgbSemihosting())
         // mountAgbSemihosting();
 
-    BootDebug_Stage(13);
     gAppSettingsService.TryLoadAppSettings(SETTINGS_FILE_PATH);
-    BootDebug_Stage(14);
 
     patch_resetSwiPatches();
-    BootDebug_Stage(15);
     loadGbaBios();
-    BootDebug_Stage(16);
     relocateGbaBios();
     applyBiosVmPatches();
-    BootDebug_Stage(17);
     const char* romPath = argc > 1 ? argv[1] : DEFAULT_ROM_FILE_PATH;
-    BootDebug_Stage(18);
     loadGbaRom(romPath);
-    BootDebug_Stage(19);
     char* romExtension = strrchr(romPath, '.');
     if (romExtension)
     {
@@ -515,24 +492,13 @@ extern "C" void gbaRunnerMain(int argc, char* argv[])
         romExtension[3] = 'v';
         romExtension[4] = '\0';
     }
-    BootDebug_Stage(20);
     loadGameSpecificSettings();
-    BootDebug_Stage(21);
-    BootDebug_Stage(22);
-    const bool cheatLoaded = gCheatService.LoadForRom(gRomHeader);
-    BootDebug_Stage(cheatLoaded ? 23 : 24);
-    BootDebug_Stage(25);
+    gCheatService.LoadForRom(gRomHeader);
     handleSave(romPath);
-    BootDebug_Stage(26);
-    BootDebug_Stage(27);
     SelfModifyingPatches().ApplyPatches(gAppSettingsService.GetAppSettings().runSettings);
-    BootDebug_Stage(28);
 
-    BootDebug_Stage(29);
     waitSplashScreenAnimation();
-    BootDebug_Stage(30);
     stopSplashScreenAnimation();
-    BootDebug_Stage(31);
     delete sSplashScreen;
     sSplashScreen = nullptr;
 
@@ -544,19 +510,12 @@ extern "C" void gbaRunnerMain(int argc, char* argv[])
         displaySettings.gbaScreen = GbaScreen::Top;
         displaySettings.enableCenterAndMask = false;
     }
-    BootDebug_Stage(32);
     gGbaDisplayConfigurationService.ApplyDisplaySettings(displaySettings);
-    // ApplyDisplaySettings intentionally blacks/disables the unused LCD.
-    // Restore the diagnostic lower screen immediately afterwards.
-    BootDebug_RestoreVideo();
-    BootDebug_EnableBottomBacklight();
-    BootDebug_Stage(33);
     if (displaySettings.enableCenterAndMask)
     {
         gGbaBorderService.SetupBorder(displaySettings.borderImage, gRomHeader.gameCode);
     }
 
-    BootDebug_Stage(34);
     // Do not clear ewram before we read argv
     memset((void*)0x02000000, 0, 256 * 1024);
     memset((void*)0x03000000, 0, 32 * 1024);
@@ -564,24 +523,12 @@ extern "C" void gbaRunnerMain(int argc, char* argv[])
     memset((void*)((u32)GFX_BG_MAIN + 0x40000), 0, 128 * 1024); // vram B
     memset((void*)GFX_OBJ_MAIN, 0, 32 * 1024);
     memset(emu_ioRegisters, 0, sizeof(emu_ioRegisters));
-    BootDebug_Stage(35);
-    BootDebug_Stage(36);
     memu_initializeArmDispatchTable();
     vm_initializeUndefinedArmTable();
-    BootDebug_Stage(37);
-    BootDebug_Stage(38);
     setupJit();
-    BootDebug_Stage(39);
-    BootDebug_Stage(40);
     dma_init();
-    BootDebug_Stage(41);
-    BootDebug_Stage(42);
     gbas_init();
-    BootDebug_Stage(43);
-    BootDebug_Stage(44);
     gCheatService.InitializeUi();
-    BootDebug_Stage(45);
-    BootDebug_Stage(46);
     dc_flushRange((void*)ROM_LINEAR_DS_ADDRESS, ROM_LINEAR_SIZE);
     dc_flushRange(gGbaBios, sizeof(gGbaBios));
     ic_invalidateAll();
@@ -590,14 +537,11 @@ extern "C" void gbaRunnerMain(int argc, char* argv[])
     setupIWramDataCache();
     setupEWramDataCache();
     setupArm9Clock();
-    BootDebug_Stage(47);
 
-    BootDebug_Stage(48);
     rtos_setIrqMask(RTOS_IRQ_VBLANK);
     rtos_ackIrqMask(~0u);
     REG_IME = 1;
     gfx_setVBlankIrqEnabled(true);
-    BootDebug_Stage(49);
     const auto& runSettings = gAppSettingsService.GetAppSettings().runSettings;
     VirtualMachine virtualMachine
     {
@@ -606,9 +550,6 @@ extern "C" void gbaRunnerMain(int argc, char* argv[])
         &gGbaBios[0x128 >> 2]
     };
     context_t runContext { };
-    BootDebug_Stage(50);
-    BootDebug_ShowCheatButton();
     virtualMachine.Run(&runContext);
-    BootDebug_Stage(51);
     while (true);
 }

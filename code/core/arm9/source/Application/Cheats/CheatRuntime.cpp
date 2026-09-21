@@ -44,41 +44,30 @@ static void uiPrint(u32 x, u32 y, const char* text, u32 maxChars = 32)
 
 void CheatService::InitializeUi()
 {
-    // This is the first checkpoint executed from CheatRuntime.o in EWRAM.
-    // If 66 is visible, MPU execution permission and the long call are good.
-    BootDebug_Stage(66);
-
     // The assembly hook must remain inert during the entire boot/splash path.
     gCheatVBlankEnabled = 0;
     if (!HasCheats())
     {
-        BootDebug_Stage(67);
         return;
     }
-    BootDebug_Stage(68);
 
-    // ApplyDisplaySettings() already selected the top LCD for GBA output, and
-    // BootDebug_EnableBottomBacklight() already re-enabled the lower LCD.
-    // Do not send redundant synchronous ARM7 IPC commands here; after gbas_init
-    // they are unnecessary and would add another possible boot-time wait.
+    // Reserve VRAM C for the lower touch UI. VRAM H/I must stay in LCDC mode
+    // because GBARunner3 stores the GBA BIOS and ROM-cache lookup table there.
     BootDebug_RestoreVideo();
-    BootDebug_Stage(69);
+    BootDebug_EnableBottomBacklight();
     _uiInitialized = true;
 
     // Do not interpret a pen that was already down during startup as a fresh
     // press of the cheat button on the first emulated VBlank.
     dc_invalidateRange((void*)&gGbaSoundShared.cheatInput, sizeof(gGbaSoundShared.cheatInput));
     _touchWasDown = gGbaSoundShared.cheatInput.touchDown != 0;
-    BootDebug_Stage(70);
 
     BootDebug_ShowCheatButton();
-    BootDebug_Stage(71);
 
     // Publish all UI/shared state before allowing the IRQ hook to call C++.
     dc_flushRange((void*)&gGbaSoundShared, sizeof(gGbaSoundShared));
     gCheatVBlankEnabled = 1;
     dc_flushRange((void*)&gCheatVBlankEnabled, sizeof(gCheatVBlankEnabled));
-    BootDebug_Stage(72);
 }
 
 void CheatService::RenderClosed()
@@ -321,39 +310,14 @@ void CheatService::ApplyEnabledCheats()
             ApplyCodeBreakerCheat(_cheats[i]);
 }
 
-[[gnu::section(".ewram.bss"), gnu::aligned(4)]]
-static volatile u32 sCheatVBlankDebugState;
-
 void CheatService::OnVBlank()
 {
     if (!HasCheats()) return;
 
-    // Log only the first successful pass so the debug overlay is not flooded
-    // at 60 Hz.  These checkpoints distinguish an EWRAM-call/stack fault from
-    // the cheat executor or ARM7 touch shared-memory path.
-    const bool firstPass = (sCheatVBlankDebugState == 0);
-    if (firstPass)
-        BootDebug_Stage(73);
-
     ApplyEnabledCheats();
-    if (firstPass)
-        BootDebug_Stage(74);
 
-    if (firstPass)
-        BootDebug_Stage(75);
-    const bool openMenu = ReadCheatButtonPressed();
-    if (firstPass)
-    {
-        BootDebug_Stage(76);
-        sCheatVBlankDebugState = 1;
-    }
-
-    if (openMenu)
-    {
-        BootDebug_Stage(77);
-        BootDebug_Hide();
+    if (ReadCheatButtonPressed())
         RunMenuLoop();
-    }
 }
 
 extern "C" void cheat_onVBlank(void)

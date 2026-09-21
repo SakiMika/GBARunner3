@@ -8,7 +8,6 @@
 #include "Peripherals/Sound/GbaSound9.h"
 #include "SystemIpc.h"
 #include "cp15.h"
-#include "Application/BootDebug.h"
 
 #pragma GCC optimize("Os")
 
@@ -251,13 +250,11 @@ bool CheatService::ParseCodeLine(const char* text, CodeLine& line)
 
 bool CheatService::TryLoadFile(const char* path)
 {
-    BootDebug_Stage(54);
     // Never put FIL on the normal ARM9 stack: FF_FS_TINY=0 gives FIL its own
     // sector buffer, which alone consumes more than half of that stack.
     memset(&sCheatFile, 0, sizeof(sCheatFile));
     if (f_open(&sCheatFile, path, FA_READ | FA_OPEN_EXISTING) != FR_OK)
         return false;
-    BootDebug_Stage(55);
 
     const u32 fileSize = f_size(&sCheatFile);
     if (fileSize == 0 || fileSize > CHEAT_FILE_MAX_SIZE)
@@ -265,7 +262,6 @@ bool CheatService::TryLoadFile(const char* path)
         f_close(&sCheatFile);
         return false;
     }
-    BootDebug_Stage(56);
 
     UINT bytesRead = 0;
     const FRESULT result = f_read(&sCheatFile, sCheatFileBuffer, fileSize, &bytesRead);
@@ -273,14 +269,11 @@ bool CheatService::TryLoadFile(const char* path)
     if (result != FR_OK || bytesRead != fileSize)
         return false;
     sCheatFileBuffer[fileSize] = 0;
-    BootDebug_Stage(57);
 
     const char* p = findLiteralLocal(sCheatFileBuffer, "\"cheats\"");
     if (!p) return false;
-    BootDebug_Stage(58);
     p = findCharLocal(p, '[');
     if (!p) return false;
-    BootDebug_Stage(59);
     ++p;
 
     _cheatCount = 0;
@@ -348,7 +341,6 @@ bool CheatService::TryLoadFile(const char* path)
             ++_cheatCount;
     }
 
-    BootDebug_Stage(60);
     if (_cheatCount)
         gLogger->Log(LogLevel::Debug, "Loaded %u cheats from %s\n", _cheatCount, path);
     return _cheatCount != 0;
@@ -356,7 +348,6 @@ bool CheatService::TryLoadFile(const char* path)
 
 bool CheatService::LoadForRom(const GbaHeader& header)
 {
-    BootDebug_Stage(52);
     // gCheatService is intentionally a trivial .ewram.bss object. Reset every
     // runtime field here rather than relying on a global C++ constructor.
     gCheatVBlankEnabled = 0;
@@ -369,18 +360,11 @@ bool CheatService::LoadForRom(const GbaHeader& header)
     memset(_cheats, 0, sizeof(_cheats));
 
     buildVersionPath(sCheatPath, header);
-    BootDebug_Stage(53);
     if (TryLoadFile(sCheatPath))
     {
-        BootDebug_Stage(65);
         return true;
     }
-    BootDebug_Stage(61);
     buildMakerPath(sCheatPath, header);
-    BootDebug_Stage(62);
-    BootDebug_Stage(63);
     const bool loaded = TryLoadFile(sCheatPath);
-    BootDebug_Stage(64);
-    BootDebug_Stage(65);
     return loaded;
 }

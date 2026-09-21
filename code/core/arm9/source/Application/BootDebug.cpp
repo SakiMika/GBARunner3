@@ -3,116 +3,26 @@
 #include <libtwl/mem/memVram.h>
 #include "SystemIpc.h"
 
-#define BOOTDBG_TILE_BASE      ((volatile u8*)0x06200000)
-#define BOOTDBG_MAP_BASE       ((volatile u16*)0x06204000)
-#define BOOTDBG_PALETTE        ((volatile u16*)0x05000400)
-#define BOOTDBG_FIRST_ROW      1u
-#define BOOTDBG_LAST_ROW       21u
-#define BOOTDBG_CHEAT_ROW      23u
-#define BOOTDBG_CHEAT_COL      25u
+#define UI_TILE_BASE      ((volatile u8*)0x06200000)
+#define UI_MAP_BASE       ((volatile u16*)0x06204000)
+#define UI_PALETTE        ((volatile u16*)0x05000400)
+#define UI_CHEAT_ROW      22u
+#define UI_CHEAT_COL      25u
 
-// Keep the diagnostic overlay self-contained.  The ARM9 core normally gets
-// these aliases indirectly through libtwl graphics headers, but BootDebug only
-// needs three fixed NDS 2D-engine-B registers.  Using private aliases prevents
-// this debug-only file from depending on transitive header definitions.
-#define BOOTDBG_REG_DISPCNT_SUB       (*(volatile u32*)0x04001000)
-#define BOOTDBG_REG_BG0CNT_SUB        (*(volatile u16*)0x04001008)
-#define BOOTDBG_REG_MASTER_BRIGHT_SUB (*(volatile u16*)0x0400106C)
+// VRAM H + I are NOT free: gbarunner9.ld places the 16 KiB GBA BIOS and the
+// 32 KiB ROM-block lookup table in .vramhi.bss at 0x06898000..0x068A3FFF.
+// Earlier cheat builds remapped H to Sub BG, which made the VM start from an
+// inaccessible/corrupted BIOS and left the GBA screen white.
+//
+// Cheat mode disables center-and-mask capture, so VRAM C is free for the lower
+// LCD UI. VRAM C MST=4 maps the bank to Sub BG at 0x06200000.
+#define UI_REG_VRAM_C_CR          (*(volatile u8*)0x04000242)
+#define UI_REG_VRAM_H_CR          (*(volatile u8*)0x04000248)
+#define UI_REG_VRAM_I_CR          (*(volatile u8*)0x04000249)
+#define UI_REG_DISPCNT_SUB        (*(volatile u32*)0x04001000)
+#define UI_REG_BG0CNT_SUB         (*(volatile u16*)0x04001008)
+#define UI_REG_MASTER_BRIGHT_SUB  (*(volatile u16*)0x0400106C)
 
-[[gnu::section(".ewram.bss"), gnu::aligned(4)]]
-static u32 sBootDebugNextRow;
-[[gnu::section(".ewram.bss"), gnu::aligned(4)]]
-static u32 sBootDebugVisible;
-
-[[gnu::section(".ewram"), gnu::aligned(4)]]
-static const char sBootDebugStages[][32] = {
-    "",
-    "01 MAIN ENTER",
-    "02 SPLASH NEW >",
-    "03 SPLASH NEW OK",
-    "04 SPLASH INIT OK",
-    "05 ENV INIT >",
-    "06 ENV INIT OK",
-    "07 LOGGER OK",
-    "08 BOTTOM LCD ON",
-    "09 SPLASH IRQ >",
-    "10 SPLASH IRQ OK",
-    "11 MOUNT FS >",
-    "12 MOUNT FS OK",
-    "13 SETTINGS >",
-    "14 SETTINGS OK",
-    "15 BIOS LOAD >",
-    "16 BIOS LOAD OK",
-    "17 BIOS PATCH OK",
-    "18 ROM LOAD >",
-    "19 ROM LOAD OK",
-    "20 GAME CONFIG >",
-    "21 GAME CONFIG OK",
-    "22 CHEAT LOAD >",
-    "23 CHEAT LOAD OK",
-    "24 CHEAT NONE",
-    "25 SAVE INIT >",
-    "26 SAVE INIT OK",
-    "27 PATCHES >",
-    "28 PATCHES OK",
-    "29 WAIT SPLASH >",
-    "30 WAIT SPLASH OK",
-    "31 SPLASH STOP OK",
-    "32 DISPLAY APPLY >",
-    "33 DISPLAY APPLY OK",
-    "34 MEMORY CLEAR >",
-    "35 MEMORY CLEAR OK",
-    "36 MEMU TABLE >",
-    "37 MEMU TABLE OK",
-    "38 JIT >",
-    "39 JIT OK",
-    "40 DMA >",
-    "41 DMA OK",
-    "42 GBAS >",
-    "43 GBAS OK",
-    "44 CHEAT UI >",
-    "45 CHEAT UI OK",
-    "46 CACHE SETUP >",
-    "47 CACHE SETUP OK",
-    "48 VM IRQ >",
-    "49 VM IRQ OK",
-    "50 VM RUN >",
-    "!! VM RETURNED",
-    "!! MOUNT FS FAILED",
-    "52 CHEAT FUNC ENTER",
-    "53 PATH VERSION OK",
-    "54 TRY FILE ENTER",
-    "55 FILE OPEN OK",
-    "56 FILE SIZE OK",
-    "57 FILE READ OK",
-    "58 JSON CHEATS FOUND",
-    "59 JSON ARRAY FOUND",
-    "60 JSON PARSE OK",
-    "61 FIRST FILE MISS",
-    "62 PATH MAKER OK",
-    "63 SECOND FILE ENTER",
-    "64 SECOND FILE RETURN",
-    "65 CHEAT FUNC RETURN",
-    "66 UI EWRAM ENTER",
-    "67 UI NO CHEATS",
-    "68 UI HAS CHEATS",
-    "69 UI VIDEO OK",
-    "70 UI TOUCH OK",
-    "71 UI BUTTON OK",
-    "72 UI IRQ ENABLED",
-    "73 VBLANK C ENTER",
-    "74 VBLANK CHEATS OK",
-    "75 VBLANK TOUCH >",
-    "76 VBLANK RETURN OK",
-    "77 CHEAT MENU OPEN"
-};
-
-[[gnu::section(".ewram"), gnu::aligned(4)]]
-static const char sBootDebugHeader[] = "GBARUNNER3 V15 VBLANK DEBUG";
-[[gnu::section(".ewram"), gnu::aligned(4)]]
-static const char sBootDebugCheat[] = "[CHEAT]";
-
-[[gnu::section(".ewram"), gnu::aligned(4)]]
 static const u8 sFont8x8[95][8] = {
     {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}, // ' '
     {0x02, 0x02, 0x02, 0x02, 0x02, 0x00, 0x00, 0x02}, // '!'
@@ -211,16 +121,10 @@ static const u8 sFont8x8[95][8] = {
     {0x00, 0x00, 0x00, 0x00, 0x16, 0x1A, 0x00, 0x00}, // '~'
 };
 
-static void clearRow(u32 row)
-{
-    for (u32 x = 0; x < 32; ++x)
-        BOOTDBG_MAP_BASE[row * 32 + x] = 0;
-}
-
 static void clearMap()
 {
     for (u32 i = 0; i < 32 * 32; ++i)
-        BOOTDBG_MAP_BASE[i] = 0;
+        UI_MAP_BASE[i] = 0;
 }
 
 static void putChar(u32 x, u32 y, char c)
@@ -228,7 +132,7 @@ static void putChar(u32 x, u32 y, char c)
     if (x >= 32 || y >= 32) return;
     u8 uc = static_cast<u8>(c);
     if (uc < 32 || uc > 126) uc = '?';
-    BOOTDBG_MAP_BASE[y * 32 + x] = static_cast<u16>(uc - 32);
+    UI_MAP_BASE[y * 32 + x] = static_cast<u16>(uc - 32);
 }
 
 static void printText(u32 x, u32 y, const char* text, u32 maxChars = 32)
@@ -240,12 +144,12 @@ static void printText(u32 x, u32 y, const char* text, u32 maxChars = 32)
 
 static void initFont()
 {
-    BOOTDBG_PALETTE[0] = 0x0000;
-    BOOTDBG_PALETTE[1] = 0x7FFF;
+    UI_PALETTE[0] = 0x0000;
+    UI_PALETTE[1] = 0x7FFF;
 
     for (u32 g = 0; g < 95; ++g)
     {
-        volatile u8* tile = BOOTDBG_TILE_BASE + g * 32;
+        volatile u8* tile = UI_TILE_BASE + g * 32;
         for (u32 y = 0; y < 8; ++y)
         {
             const u8 bits = sFont8x8[g][y];
@@ -262,65 +166,36 @@ static void initFont()
 
 void BootDebug_RestoreVideo()
 {
-    mem_setVramHMapping(MEM_VRAM_H_SUB_BG_00000);
-    BOOTDBG_REG_DISPCNT_SUB = (1u << 16) | (1u << 8);
-    BOOTDBG_REG_BG0CNT_SUB = (8u << 8);
-    BOOTDBG_REG_MASTER_BRIGHT_SUB = 0;
-}
+    // Preserve GBARunner3's .vramhi.bss backing before touching the UI bank.
+    // 0x80 = enabled + MST 0 (LCDC).
+    UI_REG_VRAM_H_CR = 0x80;
+    UI_REG_VRAM_I_CR = 0x80;
 
-void BootDebug_Init()
-{
-    BootDebug_RestoreVideo();
+    // 0x84 = enable VRAM C + MST 4 (Sub BG, base 0x06200000).
+    UI_REG_VRAM_C_CR = 0x84;
+    UI_REG_DISPCNT_SUB = (1u << 16) | (1u << 8); // display mode 1, BG0 on
+    UI_REG_BG0CNT_SUB = (8u << 8);               // map base 8 -> 0x06204000
+    UI_REG_MASTER_BRIGHT_SUB = 0;
     initFont();
     clearMap();
-    sBootDebugNextRow = BOOTDBG_FIRST_ROW;
-    sBootDebugVisible = 1;
-    printText(0, 0, sBootDebugHeader);
 }
+
+// Kept as no-ops so any leftover diagnostic call cannot paint old boot text.
+void BootDebug_Init() { }
+void BootDebug_Stage(u32) { }
 
 void BootDebug_EnableBottomBacklight()
 {
     sysipc_setBottomBacklight(true);
-    BOOTDBG_REG_MASTER_BRIGHT_SUB = 0;
-}
-
-static void scrollLog()
-{
-    for (u32 y = BOOTDBG_FIRST_ROW; y < BOOTDBG_LAST_ROW; ++y)
-        for (u32 x = 0; x < 32; ++x)
-            BOOTDBG_MAP_BASE[y * 32 + x] = BOOTDBG_MAP_BASE[(y + 1) * 32 + x];
-    clearRow(BOOTDBG_LAST_ROW);
-}
-
-void BootDebug_Log(const char* text)
-{
-    if (!sBootDebugVisible) return;
-    if (sBootDebugNextRow > BOOTDBG_LAST_ROW)
-    {
-        scrollLog();
-        sBootDebugNextRow = BOOTDBG_LAST_ROW;
-    }
-    clearRow(sBootDebugNextRow);
-    printText(0, sBootDebugNextRow, text);
-    ++sBootDebugNextRow;
-}
-
-void BootDebug_Stage(u32 stage)
-{
-    const u32 count = sizeof(sBootDebugStages) / sizeof(sBootDebugStages[0]);
-    if (stage < count)
-        BootDebug_Log(sBootDebugStages[stage]);
+    UI_REG_MASTER_BRIGHT_SUB = 0;
 }
 
 void BootDebug_ShowCheatButton()
 {
-    if (!sBootDebugVisible) return;
-    clearRow(BOOTDBG_CHEAT_ROW);
-    printText(BOOTDBG_CHEAT_COL, BOOTDBG_CHEAT_ROW, sBootDebugCheat, 7);
+    printText(UI_CHEAT_COL, UI_CHEAT_ROW, "[CHEAT]", 7);
 }
 
 void BootDebug_Hide()
 {
     clearMap();
-    sBootDebugVisible = 0;
 }
