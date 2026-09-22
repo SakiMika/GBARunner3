@@ -369,8 +369,7 @@ bool CheatService::LoadForRom(const GbaHeader& header)
     _scroll = 0;
     _menuOpen = false;
     _uiInitialized = false;
-    _touchWasDown = false;
-    _hotkeyWasDown = false;
+    _xWasDown = false;
     memset(_cheats, 0, sizeof(_cheats));
 
     buildVersionPath(sCheatPath, header);
