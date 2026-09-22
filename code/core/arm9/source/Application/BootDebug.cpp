@@ -5,6 +5,10 @@
 
 #define UI_TILE_BASE      ((volatile u8*)0x06000000)
 #define UI_MAP_BASE       ((volatile u16*)0x06004000)
+// Full cheat menu uses VRAM B at Main-BG offset 0x40000.  VRAM A must
+// remain untouched because ARM9 .text/.rodata executes from 0x06800000.
+#define UI_MENU_TILE_BASE ((volatile u8*)0x06040000)
+#define UI_MENU_MAP_BASE  ((volatile u16*)0x06044000)
 #define UI_PALETTE        ((volatile u16*)0x05000000)
 #define UI_CHEAT_ROW      22u
 #define UI_CHEAT_COL      24u
@@ -199,6 +203,34 @@ static void initFont()
     }
 }
 
+static void initMenuFont()
+{
+    UI_PALETTE[0] = 0x0000;
+    UI_PALETTE[1] = 0x7FFF;
+
+    for (u32 g = 0; g < 95; ++g)
+    {
+        volatile u8* tile = UI_MENU_TILE_BASE + g * 32;
+        for (u32 y = 0; y < 8; ++y)
+        {
+            const u8 bits = sFont8x8[g][y];
+            for (u32 pair = 0; pair < 4; ++pair)
+            {
+                const u32 x = pair * 2;
+                const u8 p0 = (bits >> x) & 1;
+                const u8 p1 = (bits >> (x + 1)) & 1;
+                tile[y * 4 + pair] = p0 | (p1 << 4);
+            }
+        }
+    }
+}
+
+static void clearMenuMap()
+{
+    for (u32 i = 0; i < 32 * 32; ++i)
+        UI_MENU_MAP_BASE[i] = 0;
+}
+
 static void drawClosedButtonFramebuffer()
 {
     // Bit 15 is set so the same pixels are also valid as direct-color data if
@@ -262,20 +294,25 @@ void BootDebug_RestoreVideo()
     sMenuVideoState.palette1 = UI_PALETTE[1];
     sMenuVideoState.valid = 1;
 
-    // VRAM A normally owns Main BG slot 0. Disable it only while the VM is
-    // paused, then map VRAM B there for the text UI. C/D remain untouched, so
-    // the frozen top-screen capture stays byte-for-byte intact.
-    UI_REG_VRAM_A_CR = 0x00;
-    UI_REG_VRAM_B_CR = 0x81; // MAIN_BG, offset 0x00000
+    // Never disable/remap VRAM A here. GBARunner3 executes most ARM9 code
+    // directly from VRAM A (0x06800000); taking that bank away while
+    // RunMenuLoop() is executing causes an immediate prefetch freeze.
+    //
+    // Instead keep A exactly as the VM left it and map VRAM B to Main-BG
+    // offset 0x40000. Main DISPCNT has independent character/screen base
+    // offsets (64 KiB units), so BG0 can address B without touching A.
+    UI_REG_VRAM_B_CR = 0x91; // MAIN_BG, offset 0x40000
 
-    UI_REG_DISPCNT = (1u << 16) | (1u << 8); // graphics display, mode 0, BG0
-    UI_REG_BG0CNT = (8u << 8);                // map base 8 -> 0x06004000
+    constexpr u32 kMenuBgBase64K = 4u; // 0x40000 / 0x10000
+    UI_REG_DISPCNT = (1u << 16) | (1u << 8) |
+        (kMenuBgBase64K << 24) | (kMenuBgBase64K << 27);
+    UI_REG_BG0CNT = (8u << 8); // map base 8 -> 0x06044000
     UI_REG_BG0HOFS = 0;
     UI_REG_BG0VOFS = 0;
     UI_REG_MASTER_BRIGHT = 0;
 
-    initFont();
-    clearMap();
+    initMenuFont();
+    clearMenuMap();
 }
 
 // Kept as no-ops so any leftover diagnostic call cannot paint old boot text.
@@ -304,12 +341,12 @@ void BootDebug_Hide()
     // back, then restore exactly what the running GBA renderer had on menu
     // entry. The top-screen Sub Engine was never altered.
     UI_REG_MASTER_BRIGHT = 0x8010;
-    clearMap();
+    clearMenuMap();
 
     UI_PALETTE[0] = sMenuVideoState.palette0;
     UI_PALETTE[1] = sMenuVideoState.palette1;
     UI_REG_VRAM_B_CR = 0x00;
-    UI_REG_VRAM_A_CR = sMenuVideoState.vramA;
+    // VRAM A was never touched while the menu was open.
     UI_REG_VRAM_B_CR = sMenuVideoState.vramB;
 
     UI_REG_BG0CNT = sMenuVideoState.bg0cnt;

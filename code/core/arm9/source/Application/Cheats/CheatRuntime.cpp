@@ -15,9 +15,10 @@
 #define CHEAT_FOOTER_ROW          22
 // While the cheat menu is open the VM is stopped inside VBlank. Keep the
 // normal center-and-mask Sub Engine on the top LCD untouched and draw the
-// menu with the otherwise-hidden Main Engine on the bottom LCD.
-#define MENU_BG_TILE_BASE         ((volatile u8*)0x06000000)
-#define MENU_BG_MAP_BASE          ((volatile u16*)0x06004000)
+// menu with the otherwise-hidden Main Engine on the bottom LCD. VRAM B is
+// addressed through Main-BG base 0x40000 so executable VRAM A stays mapped.
+#define MENU_BG_TILE_BASE         ((volatile u8*)0x06040000)
+#define MENU_BG_MAP_BASE          ((volatile u16*)0x06044000)
 #define MENU_BG_PALETTE           ((volatile u16*)0x05000000)
 
 extern "C" {
