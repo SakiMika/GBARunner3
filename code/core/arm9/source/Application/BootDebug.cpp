@@ -14,9 +14,12 @@
 // Earlier cheat builds remapped H to Sub BG, which made the VM start from an
 // inaccessible/corrupted BIOS and left the GBA screen white.
 //
-// Normal gameplay keeps center-and-mask capture enabled. VRAM C is therefore
-// only remapped to Sub BG while the game is paused inside the cheat menu.
-// Closed gameplay uses a 16-line direct-VRAM strip instead (see below).
+// Normal gameplay keeps center-and-mask capture enabled. VRAM C/D belong to
+// that capture path and must never be stolen for the closed cheat button.
+// VRAM B is otherwise unused by the runtime after bootstrap, so the closed
+// button uses a 16-line direct-VRAM strip there. VRAM C is remapped only while
+// the VM is paused inside the full cheat menu.
+#define UI_REG_VRAM_B_CR          (*(volatile u8*)0x04000241)
 #define UI_REG_VRAM_C_CR          (*(volatile u8*)0x04000242)
 #define UI_REG_VRAM_H_CR          (*(volatile u8*)0x04000248)
 #define UI_REG_VRAM_I_CR          (*(volatile u8*)0x04000249)
@@ -27,9 +30,9 @@
 // When center-and-mask is active the main 2D engine is physically on the
 // lower LCD and is blacked out.  During the final 16 scanlines we briefly
 // switch that engine to VRAM-display mode and show this small framebuffer
-// strip from VRAM C.  The visible GBA image on the top LCD only consumes
+// strip from VRAM B.  The visible GBA image on the top LCD only consumes
 // captured source lines 0..159, so rows 176..191 are safe scratch space.
-#define UI_VRAM_C_LCDC            ((volatile u16*)0x06840000)
+#define UI_VRAM_B_LCDC            ((volatile u16*)0x06820000)
 #define UI_CLOSED_Y0              176u
 #define UI_CLOSED_Y1              192u
 #define UI_CLOSED_TEXT_X          198u
@@ -185,7 +188,7 @@ static void drawClosedButtonFramebuffer()
 
     for (u32 y = UI_CLOSED_Y0; y < UI_CLOSED_Y1; ++y)
     {
-        volatile u16* row = UI_VRAM_C_LCDC + y * 256;
+        volatile u16* row = UI_VRAM_B_LCDC + y * 256;
         for (u32 x = 0; x < 256; ++x)
             row[x] = black;
     }
@@ -200,7 +203,7 @@ static void drawClosedButtonFramebuffer()
         for (u32 gy = 0; gy < 8; ++gy)
         {
             const u8 bits = glyph[gy];
-            volatile u16* row = UI_VRAM_C_LCDC + (UI_CLOSED_TEXT_Y + gy) * 256;
+            volatile u16* row = UI_VRAM_B_LCDC + (UI_CLOSED_TEXT_Y + gy) * 256;
             for (u32 gx = 0; gx < 8; ++gx)
             {
                 if ((bits >> gx) & 1)
@@ -212,11 +215,13 @@ static void drawClosedButtonFramebuffer()
 
 void BootDebug_PrepareClosedButton()
 {
-    // CPU-visible/LCDC mapping is required for direct writes to 0x06840000.
-    // The stock VBlank capture code will restore C/D's capture/display
-    // mappings before the next visible GBA frame.
-    UI_REG_VRAM_C_CR = 0x80;
+    // VRAM B is kept out of the C/D capture ping-pong. Temporarily map it to
+    // LCDC so ARM9 can prepare the 16-line framebuffer, then immediately put
+    // it back at the stock MAIN_BG +0x40000 mapping. HBlank will expose B only
+    // for scanlines 176..191 and VBlank restores it before the next frame.
+    UI_REG_VRAM_B_CR = 0x80; // LCDC
     drawClosedButtonFramebuffer();
+    UI_REG_VRAM_B_CR = 0x91; // MAIN_BG, offset 0x40000
 }
 
 void BootDebug_RestoreVideo()

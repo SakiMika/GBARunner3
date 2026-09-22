@@ -30,8 +30,9 @@ u32 VirtualMachine::Run(const context_t* context)
     if (gCheatVBlankEnabled)
     {
         // Keep a hardware HBlank source alive for the 16-line lower-screen
-        // cheat button overlay. vm_hwIrqMask still decides whether HBlank is
-        // exposed to the emulated GBA, so this does not create fake GBA IRQs.
+        // cheat button overlay rendered from VRAM B. vm_hwIrqMask still
+        // decides whether HBlank is exposed to the emulated GBA, so this does
+        // not create fake GBA IRQs.
         vm_forcedIrqMask |= 1 << 1;
         REG_IE |= 1 << 1;
         gfx_setHBlankIrqEnabled(true);

@@ -13,9 +13,11 @@ arm_func emu_vblankIrq
     cmp lr, #0
     beq cheat_vblankOverlayRestored
 
-    ldr r13,= gCheatPendingDispCnt
-    ldr lr, [r13]
     mov r13, #0x04000000
+    mov lr, #0x91
+    strb lr, [r13, #0x241]      // VRAM B -> MAIN_BG +0x40000
+    ldr lr,= gCheatPendingDispCnt
+    ldr lr, [lr]
     str lr, [r13]               // REG_DISPCNT
     ldr lr,= 0x00008010
     strh lr, [r13, #0x6C]       // hide raw main engine on lower LCD
