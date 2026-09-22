@@ -76,6 +76,11 @@ CXXFLAGS	:= $(CFLAGS) -std=gnu++23 -Wno-volatile -fno-rtti -fno-exceptions -fno-
 # Use long calls only for this post-boot translation unit; the loader/parser stays
 # in VRAM A so its boot-debug checkpoints remain directly executable.
 CheatRuntime.o: CXXFLAGS += -mlong-calls
+
+# RegDispCnt.o contains fixed-offset ITCM code before ThumbDispatch (0xC00).
+# Optimize it for size so adding the single long-call bridge cannot consume the
+# dispatch slot.  The overlay bookkeeping itself remains in normal .text.
+RegDispCnt.o: CFLAGS += -Os
 BootDebug.o: CXXFLAGS += -Os
 
 ASFLAGS	:=	-g $(ARCH) $(INCLUDE)

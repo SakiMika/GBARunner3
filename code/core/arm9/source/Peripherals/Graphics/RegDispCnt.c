@@ -9,6 +9,19 @@
 extern volatile u32 gCheatOverlayActive;
 extern volatile u32 gCheatPendingDispCnt;
 
+// emu_regDispCntStore() lives in the tightly packed pre-0xC00 ITCM block.
+// Keep the cheat overlay bookkeeping out of that fixed block: v17 put the
+// stores/tests directly in the ITCM function and grew it past ThumbDispatch's
+// hard-coded 0xC00 entry point.  long_call is required because normal .text is
+// far outside ITCM on ARM9.
+__attribute__((noinline, long_call, section(".text.cheatDispCntCommit")))
+static void cheatCommitDsDispCnt(u32 dsDispCnt)
+{
+    gCheatPendingDispCnt = dsDispCnt;
+    if (!gCheatOverlayActive)
+        REG_DISPCNT = dsDispCnt;
+}
+
 static void setVramLoad012(void)
 {
     memu_setLoad8Handler(6, memu_load8Vram012);
@@ -143,11 +156,8 @@ void emu_regDispCntStore(u16 newValue)
         displayModeChange(oldMode, newMode);
     }
 
-    // During the final lower-LCD scanlines the cheat button temporarily puts
-    // the main engine in VRAM-display mode. Preserve any GBA DISPCNT writes
-    // that happen during that short window and publish the newest state when
-    // VBlank restores normal rendering.
-    gCheatPendingDispCnt = dsDispCnt;
-    if (!gCheatOverlayActive)
-        REG_DISPCNT = dsDispCnt;
+    // Keep the fixed-offset ITCM path small.  The helper lives in normal
+    // executable .text and preserves the newest translated DISPCNT while the
+    // closed cheat strip temporarily owns the hardware display register.
+    cheatCommitDsDispCnt(dsDispCnt);
 }
