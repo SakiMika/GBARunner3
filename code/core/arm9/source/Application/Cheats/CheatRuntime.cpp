@@ -6,8 +6,6 @@
 #include "SystemIpc.h"
 #include "cp15.h"
 #include "Application/BootDebug.h"
-#include "Application/GbaDisplayConfigurationService.h"
-#include "Application/Settings/AppSettingsService.h"
 
 #pragma GCC optimize("Os")
 
@@ -15,9 +13,12 @@
 #define CHEAT_LIST_FIRST_ROW      5
 #define CHEAT_LIST_ROW_STRIDE     2
 #define CHEAT_FOOTER_ROW          22
-#define SUB_BG_TILE_BASE          ((volatile u8*)0x06200000)
-#define SUB_BG_MAP_BASE           ((volatile u16*)0x06204000)
-#define SUB_BG_PALETTE            ((volatile u16*)0x05000400)
+// While the cheat menu is open the VM is stopped inside VBlank. Keep the
+// normal center-and-mask Sub Engine on the top LCD untouched and draw the
+// menu with the otherwise-hidden Main Engine on the bottom LCD.
+#define MENU_BG_TILE_BASE         ((volatile u8*)0x06000000)
+#define MENU_BG_MAP_BASE          ((volatile u16*)0x06004000)
+#define MENU_BG_PALETTE           ((volatile u16*)0x05000000)
 
 extern "C" {
 extern volatile u32 gCheatVBlankEnabled;
@@ -29,7 +30,7 @@ extern volatile u32 gCheatPendingDispCnt;
 static void uiClear()
 {
     for (u32 i = 0; i < 32 * 32; ++i)
-        SUB_BG_MAP_BASE[i] = 0;
+        MENU_BG_MAP_BASE[i] = 0;
 }
 
 static void uiPutChar(u32 x, u32 y, char c)
@@ -37,7 +38,7 @@ static void uiPutChar(u32 x, u32 y, char c)
     if (x >= 32 || y >= 32) return;
     u8 uc = static_cast<u8>(c);
     if (uc < 32 || uc > 126) uc = '?';
-    SUB_BG_MAP_BASE[y * 32 + x] = static_cast<u16>(uc - 32);
+    MENU_BG_MAP_BASE[y * 32 + x] = static_cast<u16>(uc - 32);
 }
 
 static void uiPrint(u32 x, u32 y, const char* text, u32 maxChars = 32)
@@ -145,13 +146,13 @@ void CheatService::RunMenuLoop()
 
     SetPaused(true);
 
-    // While the VM is paused, move the raw main engine to the top LCD and use
-    // the sub engine/VRAM C for the full cheat list on the touch screen.
-    // Normal centered capture is restored before the VM resumes.
-    sys_setMainEngineToTopScreen();
+    // Do NOT swap the 2D engines while the menu is open. In normal
+    // center-and-mask mode the Sub Engine on the top LCD already contains the
+    // correctly centered captured GBA frame. Leave it completely untouched so
+    // the frozen game image does not jump to the raw/unmasked layout. The
+    // hidden Main Engine remains on the bottom LCD and is temporarily turned
+    // into the cheat text screen by BootDebug_RestoreVideo().
     sysipc_setTopBacklight(true);
-    sysipc_setBottomBacklight(true);
-    REG_MASTER_BRIGHT = 0;
     BootDebug_RestoreVideo();
     BootDebug_EnableBottomBacklight();
     RenderMenu();
@@ -204,15 +205,10 @@ void CheatService::RunMenuLoop()
     while (readKeysHeld() != 0)
         waitNextFramePolling();
 
+    // Restore the exact Main Engine registers/VRAM mapping/palette saved on
+    // entry. The Sub Engine/top LCD was never changed, so the centered GBA
+    // frame remains stable throughout the menu transition.
     BootDebug_Hide();
-
-    // Restore the exact normal GBARunner3 display path: centered 240x160 game
-    // on the top LCD, hidden/raw main engine on the lower LCD.  Then re-create
-    // the closed button strip and light the lower LCD back up.
-    auto displaySettings = gAppSettingsService.GetAppSettings().displaySettings;
-    displaySettings.gbaScreen = GbaScreen::Top;
-    displaySettings.enableCenterAndMask = true;
-    gGbaDisplayConfigurationService.ApplyDisplaySettings(displaySettings);
     RenderClosed();
     BootDebug_EnableBottomBacklight();
 

@@ -3,9 +3,9 @@
 #include <libtwl/mem/memVram.h>
 #include "SystemIpc.h"
 
-#define UI_TILE_BASE      ((volatile u8*)0x06200000)
-#define UI_MAP_BASE       ((volatile u16*)0x06204000)
-#define UI_PALETTE        ((volatile u16*)0x05000400)
+#define UI_TILE_BASE      ((volatile u8*)0x06000000)
+#define UI_MAP_BASE       ((volatile u16*)0x06004000)
+#define UI_PALETTE        ((volatile u16*)0x05000000)
 #define UI_CHEAT_ROW      22u
 #define UI_CHEAT_COL      24u
 
@@ -19,13 +19,13 @@
 // VRAM B is otherwise unused by the runtime after bootstrap, so the closed
 // button uses a 16-line direct-VRAM strip there. VRAM C is remapped only while
 // the VM is paused inside the full cheat menu.
+#define UI_REG_VRAM_A_CR          (*(volatile u8*)0x04000240)
 #define UI_REG_VRAM_B_CR          (*(volatile u8*)0x04000241)
-#define UI_REG_VRAM_C_CR          (*(volatile u8*)0x04000242)
-#define UI_REG_VRAM_H_CR          (*(volatile u8*)0x04000248)
-#define UI_REG_VRAM_I_CR          (*(volatile u8*)0x04000249)
-#define UI_REG_DISPCNT_SUB        (*(volatile u32*)0x04001000)
-#define UI_REG_BG0CNT_SUB         (*(volatile u16*)0x04001008)
-#define UI_REG_MASTER_BRIGHT_SUB  (*(volatile u16*)0x0400106C)
+#define UI_REG_DISPCNT             (*(volatile u32*)0x04000000)
+#define UI_REG_BG0CNT              (*(volatile u16*)0x04000008)
+#define UI_REG_BG0HOFS             (*(volatile u16*)0x04000010)
+#define UI_REG_BG0VOFS             (*(volatile u16*)0x04000012)
+#define UI_REG_MASTER_BRIGHT       (*(volatile u16*)0x0400006C)
 
 // When center-and-mask is active the main 2D engine is physically on the
 // lower LCD and is blacked out.  During the final 16 scanlines we briefly
@@ -37,6 +37,26 @@
 #define UI_CLOSED_Y1              192u
 #define UI_CLOSED_TEXT_X          192u
 #define UI_CLOSED_TEXT_Y          180u
+
+// Opening the menu must not disturb the Sub Engine/top-screen capture path.
+// Save only the Main Engine state that the menu changes. This lives in EWRAM
+// so it cannot consume the already-tight VRAM-A .bss region.
+struct MenuVideoState
+{
+    u32 valid;
+    u32 dispcnt;
+    u16 bg0cnt;
+    u16 bg0hofs;
+    u16 bg0vofs;
+    u16 masterBright;
+    u8 vramA;
+    u8 vramB;
+    u16 palette0;
+    u16 palette1;
+};
+
+[[gnu::section(".ewram.bss"), gnu::aligned(4)]]
+static MenuVideoState sMenuVideoState;
 
 static const u8 sFont8x8[95][8] = {
     {0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00}, // ' '
@@ -226,16 +246,34 @@ void BootDebug_PrepareClosedButton()
 
 void BootDebug_RestoreVideo()
 {
-    // Preserve GBARunner3's .vramhi.bss backing before touching the UI bank.
-    // 0x80 = enabled + MST 0 (LCDC).
-    UI_REG_VRAM_H_CR = 0x80;
-    UI_REG_VRAM_I_CR = 0x80;
+    // Center-and-mask normally places the Main Engine on the bottom LCD and
+    // blacks it out, while the Sub Engine displays the captured/centered GBA
+    // image on the top LCD. Keep that top path untouched. Save the Main Engine
+    // state, temporarily give VRAM B to Main BG slot 0, and use BG0 for the
+    // cheat list on the bottom LCD.
+    sMenuVideoState.dispcnt = UI_REG_DISPCNT;
+    sMenuVideoState.bg0cnt = UI_REG_BG0CNT;
+    sMenuVideoState.bg0hofs = UI_REG_BG0HOFS;
+    sMenuVideoState.bg0vofs = UI_REG_BG0VOFS;
+    sMenuVideoState.masterBright = UI_REG_MASTER_BRIGHT;
+    sMenuVideoState.vramA = UI_REG_VRAM_A_CR;
+    sMenuVideoState.vramB = UI_REG_VRAM_B_CR;
+    sMenuVideoState.palette0 = UI_PALETTE[0];
+    sMenuVideoState.palette1 = UI_PALETTE[1];
+    sMenuVideoState.valid = 1;
 
-    // 0x84 = enable VRAM C + MST 4 (Sub BG, base 0x06200000).
-    UI_REG_VRAM_C_CR = 0x84;
-    UI_REG_DISPCNT_SUB = (1u << 16) | (1u << 8); // display mode 1, BG0 on
-    UI_REG_BG0CNT_SUB = (8u << 8);               // map base 8 -> 0x06204000
-    UI_REG_MASTER_BRIGHT_SUB = 0;
+    // VRAM A normally owns Main BG slot 0. Disable it only while the VM is
+    // paused, then map VRAM B there for the text UI. C/D remain untouched, so
+    // the frozen top-screen capture stays byte-for-byte intact.
+    UI_REG_VRAM_A_CR = 0x00;
+    UI_REG_VRAM_B_CR = 0x81; // MAIN_BG, offset 0x00000
+
+    UI_REG_DISPCNT = (1u << 16) | (1u << 8); // graphics display, mode 0, BG0
+    UI_REG_BG0CNT = (8u << 8);                // map base 8 -> 0x06004000
+    UI_REG_BG0HOFS = 0;
+    UI_REG_BG0VOFS = 0;
+    UI_REG_MASTER_BRIGHT = 0;
+
     initFont();
     clearMap();
 }
@@ -259,5 +297,26 @@ void BootDebug_ShowCheatButton()
 
 void BootDebug_Hide()
 {
+    if (!sMenuVideoState.valid)
+        return;
+
+    // Blank the temporary Main Engine while its VRAM mapping is being put
+    // back, then restore exactly what the running GBA renderer had on menu
+    // entry. The top-screen Sub Engine was never altered.
+    UI_REG_MASTER_BRIGHT = 0x8010;
     clearMap();
+
+    UI_PALETTE[0] = sMenuVideoState.palette0;
+    UI_PALETTE[1] = sMenuVideoState.palette1;
+    UI_REG_VRAM_B_CR = 0x00;
+    UI_REG_VRAM_A_CR = sMenuVideoState.vramA;
+    UI_REG_VRAM_B_CR = sMenuVideoState.vramB;
+
+    UI_REG_BG0CNT = sMenuVideoState.bg0cnt;
+    UI_REG_BG0HOFS = sMenuVideoState.bg0hofs;
+    UI_REG_BG0VOFS = sMenuVideoState.bg0vofs;
+    UI_REG_DISPCNT = sMenuVideoState.dispcnt;
+    UI_REG_MASTER_BRIGHT = sMenuVideoState.masterBright;
+
+    sMenuVideoState.valid = 0;
 }

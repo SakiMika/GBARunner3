@@ -1,9 +1,9 @@
 #pragma once
 #include "common.h"
 
-// Legacy name retained to avoid touching more call sites. In v16 this module
-// is a quiet lower-screen font/video helper for the cheat UI; it no longer
-// renders boot/debug logs.
+// Legacy name retained to avoid touching more call sites. This module now
+// owns the lower-screen cheat video helper and preserves/restores the hidden
+// Main Engine while leaving the centered top-screen capture untouched.
 void BootDebug_Init();
 void BootDebug_Stage(u32 stage);
 void BootDebug_RestoreVideo();
