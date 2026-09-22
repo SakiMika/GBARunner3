@@ -7,7 +7,7 @@
 #define UI_MAP_BASE       ((volatile u16*)0x06204000)
 #define UI_PALETTE        ((volatile u16*)0x05000400)
 #define UI_CHEAT_ROW      22u
-#define UI_CHEAT_COL      25u
+#define UI_CHEAT_COL      24u
 
 // VRAM H + I are NOT free: gbarunner9.ld places the 16 KiB GBA BIOS and the
 // 32 KiB ROM-block lookup table in .vramhi.bss at 0x06898000..0x068A3FFF.
@@ -35,7 +35,7 @@
 #define UI_VRAM_B_LCDC            ((volatile u16*)0x06820000)
 #define UI_CLOSED_Y0              176u
 #define UI_CLOSED_Y1              192u
-#define UI_CLOSED_TEXT_X          198u
+#define UI_CLOSED_TEXT_X          192u
 #define UI_CLOSED_TEXT_Y          180u
 
 static const u8 sFont8x8[95][8] = {
@@ -193,7 +193,7 @@ static void drawClosedButtonFramebuffer()
             row[x] = black;
     }
 
-    static const char text[] = "[CHEAT]";
+    static const char text[] = "X: CHEAT";
     u32 px = UI_CLOSED_TEXT_X;
     for (u32 i = 0; text[i]; ++i, px += 8)
     {
@@ -254,7 +254,7 @@ void BootDebug_EnableBottomBacklight()
 
 void BootDebug_ShowCheatButton()
 {
-    printText(UI_CHEAT_COL, UI_CHEAT_ROW, "[CHEAT]", 7);
+    printText(UI_CHEAT_COL, UI_CHEAT_ROW, "X: CHEAT", 8);
 }
 
 void BootDebug_Hide()

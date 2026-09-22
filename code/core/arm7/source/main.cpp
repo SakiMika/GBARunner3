@@ -105,7 +105,6 @@ static void initializeArm7()
     sys_setSoundPower(true);
 
     readUserSettings();
-    touchInit();
     pmic_setPowerLedBlink(PMIC_CONTROL_POWER_LED_BLINK_NONE);
 
     sio_setGpioSiIrq(false);
@@ -135,20 +134,16 @@ static void initializeArm7()
     notifyArm7Ready();
 }
 
-static void updateCheatTouchState()
+static void updateCheatKeyState()
 {
     if (!gSoundSharedData)
         return;
 
-    const bool touchDown = touchPenDown();
-    if (touchDown)
-    {
-        touchPosition touch {};
-        touchReadXY(&touch);
-        gSoundSharedData->cheatInput.touchX = touch.px;
-        gSoundSharedData->cheatInput.touchY = touch.py;
-    }
-    gSoundSharedData->cheatInput.touchDown = touchDown ? 1 : 0;
+    // EXTKEYIN is ARM7-owned on NDS/DSi. Bit 0 is the X button and is
+    // active-low. Keep this independent from the GBA keypad path: X does not
+    // exist on GBA, so games cannot consume or conflict with this button.
+    const volatile u16* const extKeyIn = (volatile u16*)0x04000136;
+    gSoundSharedData->cheatInput.xDown = ((*extKeyIn & 0x0001u) == 0) ? 1 : 0;
     ++gSoundSharedData->cheatInput.sequence;
 }
 
@@ -193,7 +188,7 @@ static void updateArm7ExitRequestedState()
 
 static void updateArm7()
 {
-    updateCheatTouchState();
+    updateCheatKeyState();
     switch (sState)
     {
         case Arm7State::Idle:

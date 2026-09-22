@@ -41,15 +41,14 @@ private:
     u32 _scroll;
     bool _menuOpen;
     bool _uiInitialized;
-    bool _touchWasDown;
-    bool _hotkeyWasDown;
+    bool _xWasDown;
 
     bool TryLoadFile(const char* path);
     static bool ParseCodeLine(const char* text, CodeLine& line);
     void ApplyEnabledCheats();
     void ApplyCodeBreakerCheat(const Cheat& cheat);
     void SetPaused(bool paused);
-    bool ReadCheatButtonPressed();
+    bool ReadXButtonPressed();
     void RunMenuLoop();
     void RenderClosed();
     void RenderMenu();

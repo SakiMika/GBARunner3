@@ -17,11 +17,11 @@ typedef struct
 
 typedef struct __attribute__((aligned(32)))
 {
-    volatile u16 touchX;
-    volatile u16 touchY;
-    volatile u8 touchDown;
+    // GBA has no X button, so DS X is reserved exclusively for the cheat UI.
+    // ARM7 owns EXTKEYIN (0x04000136) and publishes the current X state here.
+    volatile u8 xDown;
     volatile u8 sequence;
-    u8 reserved[26];
+    u8 reserved[30];
 } gbas_cheat_input_t;
 
 typedef struct __attribute__((aligned(32)))

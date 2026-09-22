@@ -11,11 +11,10 @@
 
 #pragma GCC optimize("Os")
 
-#define CHEAT_VISIBLE_ROWS        18
-#define CHEAT_BUTTON_X0           184
-#define CHEAT_BUTTON_Y0           172
-#define CHEAT_BUTTON_ROW          22
-#define CHEAT_BUTTON_COL          25
+#define CHEAT_VISIBLE_ROWS        8
+#define CHEAT_LIST_FIRST_ROW      5
+#define CHEAT_LIST_ROW_STRIDE     2
+#define CHEAT_FOOTER_ROW          22
 #define SUB_BG_TILE_BASE          ((volatile u8*)0x06200000)
 #define SUB_BG_MAP_BASE           ((volatile u16*)0x06204000)
 #define SUB_BG_PALETTE            ((volatile u16*)0x05000400)
@@ -66,8 +65,7 @@ void CheatService::InitializeUi()
     BootDebug_EnableBottomBacklight();
 
     dc_invalidateRange((void*)&gGbaSoundShared.cheatInput, sizeof(gGbaSoundShared.cheatInput));
-    _touchWasDown = gGbaSoundShared.cheatInput.touchDown != 0;
-    _hotkeyWasDown = false;
+    _xWasDown = gGbaSoundShared.cheatInput.xDown != 0;
 
     gCheatPendingDispCnt = REG_DISPCNT;
     dc_flushRange((void*)&gGbaSoundShared, sizeof(gGbaSoundShared));
@@ -89,8 +87,8 @@ void CheatService::RenderMenu()
 {
     if (!_uiInitialized) return;
     uiClear();
-    uiPrint(0, 0, "CHEATS   A: TOGGLE   D-PAD: MOVE");
-    uiPrint(0, 1, "B/TAP [CHEAT] TO RESUME");
+    uiPrint(0, 0, "CHEATS");
+    uiPrint(0, 2, "A: ON/OFF   D-PAD: MOVE");
 
     if (_selected < _scroll) _scroll = _selected;
     if (_selected >= _scroll + CHEAT_VISIBLE_ROWS)
@@ -100,13 +98,15 @@ void CheatService::RenderMenu()
         ? (_scroll + CHEAT_VISIBLE_ROWS) : _cheatCount;
     for (u32 i = _scroll; i < end; ++i)
     {
-        const u32 row = 3 + i - _scroll;
+        // One blank tile row between entries: 16 px pitch instead of the
+        // previous 8 px. Long lists simply scroll with the D-pad.
+        const u32 row = CHEAT_LIST_FIRST_ROW +
+            (i - _scroll) * CHEAT_LIST_ROW_STRIDE;
         uiPutChar(0, row, i == _selected ? '>' : ' ');
-        uiPutChar(1, row, _cheats[i].enabled ? 'X' : ' ');
-        uiPutChar(2, row, ' ');
-        uiPrint(3, row, _cheats[i].name, 29);
+        uiPutChar(2, row, _cheats[i].enabled ? 'X' : ' ');
+        uiPrint(4, row, _cheats[i].name, 28);
     }
-    uiPrint(CHEAT_BUTTON_COL, CHEAT_BUTTON_ROW, "[CHEAT]", 7);
+    uiPrint(0, CHEAT_FOOTER_ROW, "X: CLOSE");
 }
 
 void CheatService::SetPaused(bool paused)
@@ -115,18 +115,12 @@ void CheatService::SetPaused(bool paused)
     dc_flushRange((void*)&gGbaSoundShared.cheatControl, sizeof(gGbaSoundShared.cheatControl));
 }
 
-bool CheatService::ReadCheatButtonPressed()
+bool CheatService::ReadXButtonPressed()
 {
     dc_invalidateRange((void*)&gGbaSoundShared.cheatInput, sizeof(gGbaSoundShared.cheatInput));
-    const bool down = gGbaSoundShared.cheatInput.touchDown != 0;
-    bool pressed = false;
-    if (down && !_touchWasDown)
-    {
-        const int x = gGbaSoundShared.cheatInput.touchX;
-        const int y = gGbaSoundShared.cheatInput.touchY;
-        pressed = x >= CHEAT_BUTTON_X0 && y >= CHEAT_BUTTON_Y0;
-    }
-    _touchWasDown = down;
+    const bool down = gGbaSoundShared.cheatInput.xDown != 0;
+    const bool pressed = down && !_xWasDown;
+    _xWasDown = down;
     return pressed;
 }
 
@@ -197,10 +191,9 @@ void CheatService::RunMenuLoop()
             _cheats[_selected].enabled = !_cheats[_selected].enabled;
             redraw = true;
         }
-        const u16 closeHotkey = KEY_L | KEY_R | KEY_SELECT;
-        const bool closeHotkeyPressed =
-            ((keys & closeHotkey) == closeHotkey) && ((down & closeHotkey) != 0);
-        if ((down & KEY_B) || ReadCheatButtonPressed() || closeHotkeyPressed)
+        // DS X is dedicated to the cheat UI. Pressing X again closes the
+        // menu; no touch input is used anywhere in the cheat interface.
+        if (ReadXButtonPressed())
         {
             _menuOpen = false;
             break;
@@ -360,16 +353,9 @@ void CheatService::OnVBlank()
 
     ApplyEnabledCheats();
 
-    // Touch is the primary control. L+R+SELECT is a hardware fallback so the
-    // menu remains reachable even if a particular touch-panel calibration or
-    // ARM7 touch path misbehaves.
-    const u16 keys = readKeysHeld();
-    const u16 hotkey = KEY_L | KEY_R | KEY_SELECT;
-    const bool hotkeyDown = (keys & hotkey) == hotkey;
-    const bool hotkeyPressed = hotkeyDown && !_hotkeyWasDown;
-    _hotkeyWasDown = hotkeyDown;
-
-    if (ReadCheatButtonPressed() || hotkeyPressed)
+    // GBA has no X button, so DS X can toggle the cheat menu without stealing
+    // any input from the emulated game. The same button closes the menu.
+    if (ReadXButtonPressed())
         RunMenuLoop();
 }
 

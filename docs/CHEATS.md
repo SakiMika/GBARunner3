@@ -30,4 +30,4 @@ Example for Drill Dozer:
 
 The supplied 8+4 hexadecimal examples are CodeBreaker Advance syntax (often loosely grouped with Action Replay cheats on cheat sites). Multi-line entries stay grouped as one menu item and are executed in sequence. Master-code Game ID/hook lines are accepted but do not install hardware hooks; GBARunner3 does not need the external cheat cartridge handler.
 
-When at least one cheat is loaded, the lower LCD is reserved for the cheat UI and GBA output is placed on the upper LCD. Tap `[CHEAT]` to pause and open the list. Use D-pad Up/Down to select, Left/Right to page, A to toggle. Enabled cheats show `X` before the name. Tap `[CHEAT]` again to resume.
+When at least one cheat is loaded, the lower LCD is reserved for the cheat UI and GBA output is placed on the upper LCD. Tap `X: CHEAT` to pause and open the list. Use D-pad Up/Down to select, Left/Right to page, A to toggle. Enabled cheats show `X` before the name. Tap `X: CHEAT` again to resume.
